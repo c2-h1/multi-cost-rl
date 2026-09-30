@@ -11,7 +11,9 @@ import os
 import platform
 from pathlib import Path
 
-os.environ.setdefault("MUJOCO_GL", "egl")
+import sys
+if sys.platform == "linux":
+    os.environ.setdefault("MUJOCO_GL", "egl")  # macOS has no EGL; MuJoCo's default (glfw) works there
 import numpy as np
 
 from safety_adapter import REQUIRED_FIELDS, SafetyGoalBatch, cost_indicators

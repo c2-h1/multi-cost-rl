@@ -7,6 +7,7 @@ importing torch costs ~0.5 GB per process. One baseline_ppo.py run (30 envs,
 
 `available_bytes` honors cgroup limits (SLURM --mem, containers) as well as
 /proc/meminfo, so the same check works on a laptop and on the cluster.
+On macOS (no /proc) it falls back to psutil, installed with wandb.
 """
 from __future__ import annotations
 
@@ -52,11 +53,23 @@ def _cgroup_headroom():
 
 def available_bytes():
     meminfo = _read("/proc/meminfo")
-    if meminfo is None:  # not Linux: no check
-        return None
+    if meminfo is None:  # macOS
+        try:
+            import psutil
+        except ImportError:
+            return None
+        return psutil.virtual_memory().available
     host = next(int(l.split()[1]) * 1024 for l in meminfo.splitlines() if l.startswith("MemAvailable:"))
     cgroup = _cgroup_headroom()
     return host if cgroup is None else min(host, cgroup)
+
+
+def cpu_count():
+    """Cores this process may use (the SLURM allocation on Linux)."""
+    try:
+        return len(os.sched_getaffinity(0))
+    except AttributeError:  # macOS
+        return os.cpu_count() or 1
 
 
 def check(needed_gib, what, reserve_gib=2.0):

@@ -83,7 +83,7 @@ def main():
     per_job = memguard.estimate_gib(FROZEN["num_envs"] + 10, 1, args.device == "cuda")
     available = memguard.available_bytes()
     fit_memory = int((available / memguard.GIB - 4) // per_job) if available else len(jobs)
-    fit_cpu = max(1, len(os.sched_getaffinity(0)) // args.threads)
+    fit_cpu = max(1, memguard.cpu_count() // args.threads)
     max_jobs = args.max_jobs or min(fit_memory, fit_cpu)
     if max_jobs < 1:
         raise SystemExit(f"Not enough memory for one job (~{per_job:.1f} GiB + 4 GiB reserve)")
@@ -105,8 +105,9 @@ def main():
                 break  # wait for memory to free up (other users, finishing evaluations)
             output, command = jobs.pop(0)
             env = dict(os.environ, CUDA_VISIBLE_DEVICES="" if slots[slot] is None else str(slots[slot]),
-                       OMP_NUM_THREADS=str(args.threads), MKL_NUM_THREADS=str(args.threads),
-                       MUJOCO_GL="egl")
+                       OMP_NUM_THREADS=str(args.threads), MKL_NUM_THREADS=str(args.threads))
+            if sys.platform == "linux":
+                env.setdefault("MUJOCO_GL", "egl")  # headless GPU rendering; macOS has no EGL
             log = open(root / f"{output.name}.log", "w")
             print(f"[gpu {slots[slot]}] start {output}", flush=True)
             running[slot] = (output, subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, env=env), log)

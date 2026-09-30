@@ -12,6 +12,12 @@ python -m unittest test_core   # core math tests
 python validate_safety.py --video   # cost-signal validation -> runs/validation/
 ```
 
+### macOS
+
+`./setup_env.sh` works on Apple Silicon and Intel Macs (CPU torch from PyPI). Skip the
+`MUJOCO_GL=egl` export; MuJoCo's default works. Use `--device cpu` (the sim is
+CPU-bound anyway). One paper-repro run needs ~10 GiB, so a 16 GB Mac runs one at a time.
+
 ### Memory
 
 Each Safety-Gymnasium env holds ~0.2 GB and each process ~0.7 GB (torch), so one
