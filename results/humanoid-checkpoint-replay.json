@@ -1,0 +1,21 @@
+{
+  "replay/return_mean": 5.160612106323242,
+  "replay/return_std": 2.6911449432373047,
+  "replay/joint_episode_budget_pass_rate": 0.0,
+  "replay/max_mean_normalized_cost": 17.46826171875,
+  "replay/all_mean_costs_feasible": false,
+  "replay/cost_fall_risk": 223.59375,
+  "replay/normalized_fall_risk": 17.46826171875,
+  "replay/episode_violation_fall_risk": 1.0,
+  "replay/cost_joint_limit": 1.268092155456543,
+  "replay/normalized_joint_limit": 0.09906969964504242,
+  "replay/episode_violation_joint_limit": 0.0,
+  "replay/cost_actuator_load": 28.22351837158203,
+  "replay/normalized_actuator_load": 0.5512405633926392,
+  "replay/episode_violation_actuator_load": 0.03125,
+  "replay/fall_rate": 1.0,
+  "replay/forward_displacement": -0.14916531960448326,
+  "replay/physical_steps_total": 1838,
+  "replay/physical_fraction": 0.224365234375,
+  "saved_evaluation_verified": true
+}

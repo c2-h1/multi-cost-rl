@@ -1,0 +1,16 @@
+{
+  "replay/return_mean": 5.590872287750244,
+  "replay/return_std": 0.1467289924621582,
+  "replay/joint_episode_budget_pass_rate": 0.044921875,
+  "replay/max_mean_normalized_cost": 1.4170329570770264,
+  "replay/all_mean_costs_feasible": false,
+  "replay/cost_hazard": 2.720703125,
+  "replay/normalized_hazard": 1.4170329570770264,
+  "replay/episode_violation_hazard": 0.64453125,
+  "replay/cost_effort": 7.979297161102295,
+  "replay/normalized_effort": 1.038970947265625,
+  "replay/episode_violation_effort": 0.791015625,
+  "replay/success_rate": 1.0,
+  "replay/final_distance": 0.08804434537887573,
+  "saved_evaluation_verified": true
+}

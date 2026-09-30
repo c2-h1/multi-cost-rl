@@ -1,0 +1,9 @@
+.venv*/
+.cache/
+__pycache__/
+*.pyc
+external/
+runs/
+wandb/
+.DS_Store
+

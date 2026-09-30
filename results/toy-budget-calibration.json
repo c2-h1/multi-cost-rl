@@ -1,0 +1,16 @@
+{
+  "type": "handwritten_feasibility_controller_not_RL",
+  "episodes": 512,
+  "seed": 9876,
+  "budgets": [
+    1.9199999570846558,
+    7.679999828338623
+  ],
+  "return": 5.327736486826325,
+  "costs": [
+    0.0,
+    6.74598641571356
+  ],
+  "success_rate": 1.0,
+  "final_distance": 0.10336101055145264
+}
