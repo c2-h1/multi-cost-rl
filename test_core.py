@@ -4,7 +4,8 @@ import numpy as np
 import torch
 
 from toy_env import TwoCostNavigation
-from train import ActorCritic, generalized_advantage, update_multipliers, combine_advantages
+from baseline_ppo import rollout_geometry
+from train import ActorCritic, collect, generalized_advantage, update_multipliers, combine_advantages
 
 
 class CoreTests(unittest.TestCase):
@@ -66,6 +67,20 @@ class CoreTests(unittest.TestCase):
         action, latent, logp, _ = policy.act(obs)
         self.assertTrue(bool((action.abs() <= 1).all()))
         torch.testing.assert_close((policy.distribution(obs).log_prob(latent).sum(-1) - logp).exp(), torch.ones(16))
+
+    def test_baseline_reuses_small_environment_pool(self):
+        steps, episodes = rollout_geometry(30_000, 1_000, 2)
+        self.assertEqual((steps, episodes), (15_000, 30))
+        with self.assertRaises(ValueError):
+            rollout_geometry(30_000, 1_000, 4)
+
+    def test_evaluation_does_not_retain_training_tensors(self):
+        env = TwoCostNavigation(2, horizon=8, seed=3)
+        model = ActorCritic(env.obs_dim, env.action_dim, len(env.cost_names))
+        batch = collect(model, env, torch.device("cpu"), retain_rollout=False)
+        self.assertEqual(set(batch), {"returns", "costs", "diagnostics"})
+        self.assertEqual(batch["returns"].shape, (2,))
+        self.assertEqual(batch["costs"].shape, (2, 2))
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 # Python 3.10 (Safety-Gymnasium 1.0.0 pins mujoco==2.3.3 / pygame==2.1.0,
-# which have no Python 3.12 wheels). Create with ./setup_env.sh.
+# which have no Python 3.12 wheels). Create with ./setup_env.sh. Linux defaults
+# to CPU PyTorch; use TORCH_BACKEND=cu118 for the compute-capability 6.1 Titan XP.
 # Exact installed versions are written to requirements-lock.txt.
 safety-gymnasium==1.0.0
 numpy<2

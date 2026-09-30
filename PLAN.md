@@ -26,6 +26,10 @@ The usual Safety-Gym approach combines all violations into **one scalar cost** w
 
 Always `source .venv/bin/activate; export MUJOCO_GL=egl OMP_NUM_THREADS=2`.
 
+**Current target cluster:** partition `titanxp`, nodes `n1`–`n10`, 2 × Titan
+XP and 6 CPU cores per node, one-day job limit. The safe allocation is one job
+per GPU with 3 CPU cores per job. `slurm_titanxp.sh` requests exactly that.
+
 **Why Python 3.10:** Safety-Gymnasium 1.0.0 pins `mujoco==2.3.3` and `pygame==2.1.0`, which have no Python 3.12 wheels. GitHub tags v1.1/v1.2 have the same pins and only cosmetic cost-code changes. The unofficial `LIRA-illinois/safety-gymnasium2` fork was created 2026-05 and has 5 commits on a `dev` branch, no releases, and 0 stars. It ports to Gymnasium 1.x, Python ≥ 3.11, and unpinned MuJoCo 3.x. Its cost code is unchanged, but MuJoCo 3 contact physics would break comparability with published results, so it is **not used**.
 
 ## 3. Environment and costs
@@ -108,7 +112,7 @@ Before the main experiment, reproduce the published PPO and PPO-Lagrangian resul
 
 **Differences we cannot remove.** The paper used `safety_gym` with mujoco-py (MuJoCo 2.0) and TF1 with MPI. Here it is Safety-Gymnasium 1.0.0 (a reimplementation) with MuJoCo 2.3.3 and PyTorch. Expect agreement in trends and rough magnitude, not exact numbers.
 
-**Implementation:** a separate script, `baseline_ppo.py`, that mirrors the reference code and does not modify `train.py`. It runs 3 seeds × {ppo, ppo_lagrangian} at 10M steps each.
+**Implementation:** a separate script, `baseline_ppo.py`, that mirrors the reference code and does not modify `train.py`. It runs 3 seeds × {ppo, ppo_lagrangian} at 10M steps each. Each epoch still contains 30 complete 1000-step episodes, but two live simulators are reused for 15 episodes each. This preserves the 30,000-transition optimization batch without holding 30 MuJoCo instances in memory.
 
 **Compare against the paper** on its three metrics for PointGoal2:
 
@@ -127,17 +131,18 @@ Plot the learning curves against the paper's figures and table.
 - [x] Environment built and versions recorded (§2).
 - [x] `safety_adapter.py`; `train.py` takes `--env safety --budget-hazard --budget-vase`, saves step-named checkpoints, logs advantage scale, and uses fixed eval layouts.
 - [x] `validate_safety.py --video` passes. A scripted controller forces hazard and vase contact because random rollouts never touch vases. 93 steps with vase contact and motion together each counted as 1. A missing field raises. The video renders headless. Output is in `runs/validation/`.
-- [x] `python -m unittest test_core`: 7/7, including the multiplier cases. (1.5, 0.5) raises only λ_hazard and leaves the aggregate exactly on target; (0.5, 0.5) lowers every λ.
+- [x] `python -m unittest test_core`: core math and resource-shape checks, including the multiplier cases. (1.5, 0.5) raises only λ_hazard and leaves the aggregate exactly on target; (0.5, 0.5) lowers every λ.
 - [x] Training smokes on CPU, on CUDA, and on the toy env; throughput measured (§2).
 - [x] Cleanup: removed the toy-only scripts, `run_suite.py`, empty files, and the old lockfile. Docs are in `docs/`.
 - [x] Reference hyperparameters extracted (§5).
 
 ### Next
 
-- [x] **R1:** `baseline_ppo.py` written following §5 and smoke tested for 2 epochs. Env stepping uses 4 worker processes per run; each epoch is still 30 × 1000-step episodes.
-- [x] **R2:** throughput is ~37 s/epoch alone and ~50 s/epoch with 6 runs concurrent, so each run takes **~4.6 h**.
-- [ ] **R3 (running since 2026-10-01 00:44 KST, ETA ~05:30 KST):** `./run_paper_repro.sh` started PPO and PPO-Lagrangian × seeds 0, 1, 2 at 10M steps, writing to `runs/paper-repro/<algo>-s<seed>/`.
-  - Monitor: `tail -n1 runs/paper-repro/*.log | cut -c1-200`
+- [x] **R1:** `baseline_ppo.py` written following §5 and smoke tested for 2 epochs. Env stepping now defaults to 2 worker processes and reuses 2 environments; each epoch is still 30 × 1000-step episodes.
+- [x] **R2:** the original throughput test used 30 live environments per run and launched all six runs together. That configuration is invalidated because it can exhaust host RAM.
+- [x] **R2b resource fix:** baseline runs now reuse 2 environments; evaluation retains only episode summaries; launchers detect GPUs and default to one job per GPU (or one CPU job). CUDA compatibility is checked before simulator allocation.
+- [ ] **R3:** rerun PPO and PPO-Lagrangian × seeds 0, 1, 2 with `./run_paper_repro.sh` (local/interactive) or `sbatch slurm_titanxp.sh` (cluster). Outputs default to `runs/paper-repro-safe/` and `runs/paper-repro-titanxp/`, respectively.
+  - Monitor: `tail -n1 runs/paper-repro-safe/*.log | cut -c1-200`
   - Compare: `python compare_paper.py` writes `paper-comparison.{md,png,json}`. It works mid-run.
   - Paper targets, read off the end of Fig. 7 (approximate; crop saved at `docs/reference/safetygym-fig7-pointgoal2.png`):
 
@@ -164,7 +169,7 @@ Plot the learning curves against the paper's figures and table.
   - **Short constrained pilots:** `aggregate_loose` and `multi` with seed 100 and `--updates 50`.
   - **One adjustment allowed:** budgets to 0.75 × mean, **or** multiplier learning rate 0.005 if multipliers oscillate. Not both.
   - **Then freeze.**
-- [ ] **Stage 2** (~4 h unattended): 3 methods × seeds 0/1/2, 2M steps each, all 9 concurrent:
+- [ ] **Stage 2:** 3 methods × seeds 0/1/2, 2M steps each, queued one job per detected GPU by default:
 
   ```bash
   nohup python run_pilot.py --group sg-pilot-v1 --budget-hazard <D_H> --budget-vase <D_V> \

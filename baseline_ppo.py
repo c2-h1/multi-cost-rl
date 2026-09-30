@@ -11,8 +11,11 @@ on -p*(mean EpCost - 25) before the policy step; objective
 
 Differences from the paper that cannot be removed: Safety-Gymnasium 1.0.0 +
 MuJoCo 2.3.3 instead of safety_gym + mujoco-py, PyTorch instead of TF1/MPI.
-Environment stepping is spread across worker processes (no effect on the
-algorithm: every epoch is still 30 x 1000-step episodes).
+Environment stepping is spread across a small, reusable pool of worker
+processes.  The original implementation accidentally equated 30 episodes with
+30 simultaneously-live MuJoCo environments.  ``--num-envs 2`` instead reuses
+two environments for 15 episodes each, while every epoch remains exactly
+30 x 1000-step episodes and the optimization batch is unchanged.
 """
 from __future__ import annotations
 
@@ -62,6 +65,8 @@ class VecEnv:
     """Lockstep envs in worker processes; auto-reset, returning the final obs."""
 
     def __init__(self, env_id, num_envs, num_workers, seed):
+        if not 1 <= num_workers <= num_envs:
+            raise ValueError(f"workers must be in [1, num_envs], got {num_workers} for {num_envs} envs")
         ctx = mp.get_context("spawn")
         sizes = [len(c) for c in np.array_split(np.arange(num_envs), num_workers)]
         self.remotes, self.procs = [], []
@@ -89,9 +94,48 @@ class VecEnv:
 
     def close(self):
         for remote in self.remotes:
-            remote.send(("close", None))
+            try:
+                remote.send(("close", None))
+            except (BrokenPipeError, EOFError):
+                pass
         for proc in self.procs:
             proc.join(timeout=10)
+            if proc.is_alive():
+                proc.terminate()
+                proc.join(timeout=5)
+
+
+def rollout_geometry(steps_per_epoch, max_ep_len, num_envs):
+    """Return (steps per env, complete episodes) without changing the batch."""
+    if steps_per_epoch <= 0 or max_ep_len <= 0 or num_envs <= 0:
+        raise ValueError("steps-per-epoch, max-ep-len and num-envs must be positive")
+    if steps_per_epoch % max_ep_len:
+        raise ValueError("steps-per-epoch must contain a whole number of episodes")
+    episodes = steps_per_epoch // max_ep_len
+    if episodes % num_envs:
+        raise ValueError(f"num-envs={num_envs} must divide {episodes} episodes per epoch")
+    return steps_per_epoch // num_envs, episodes
+
+
+def resolve_device(requested):
+    if requested == "auto":
+        requested = "cuda" if torch.cuda.is_available() else "cpu"
+    if requested == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA was requested but torch.cuda.is_available() is false; use --device cpu or install a compatible wheel")
+    device = torch.device(requested)
+    if device.type == "cuda":
+        capability = torch.cuda.get_device_capability(device)
+        required_arch = f"sm_{capability[0]}{capability[1]}"
+        compiled_arches = torch.cuda.get_arch_list()
+        if compiled_arches and required_arch not in compiled_arches:
+            raise RuntimeError(
+                f"PyTorch was compiled for {compiled_arches}, but {torch.cuda.get_device_name(device)} "
+                f"requires {required_arch}. Install a wheel containing {required_arch} or use --device cpu."
+            )
+        # Fail before allocating environments if the CUDA runtime/wheel is unusable.
+        (torch.ones(1, device=device) + 1).cpu()
+        torch.cuda.synchronize(device)
+    return device
 
 
 def mlp(sizes):
@@ -147,9 +191,12 @@ def main():
     p.add_argument("--total-steps", type=int, default=10_000_000)
     p.add_argument("--steps-per-epoch", type=int, default=30_000)
     p.add_argument("--max-ep-len", type=int, default=1000)
-    p.add_argument("--workers", type=int, default=4)
-    p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
-    p.add_argument("--threads", type=int, default=2)
+    p.add_argument("--num-envs", type=int, default=2,
+                   help="simulators kept alive and reused; must divide episodes/epoch")
+    p.add_argument("--workers", type=int, default=2,
+                   help="simulator worker processes; must be <= num-envs")
+    p.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
+    p.add_argument("--threads", type=int, default=1)
     p.add_argument("--output", required=True)
     # Reference defaults; exposed only for smoke tests.
     p.add_argument("--gamma", type=float, default=0.99)
@@ -163,13 +210,15 @@ def main():
     torch.set_num_threads(args.threads)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
-    device = torch.device(args.device)
+    device = resolve_device(args.device)
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=False)
     shutil.copy2(__file__, output / "baseline_ppo.py")
 
-    num_envs = args.steps_per_epoch // args.max_ep_len
-    assert num_envs * args.max_ep_len == args.steps_per_epoch
+    rollout_steps, episodes_per_epoch = rollout_geometry(
+        args.steps_per_epoch, args.max_ep_len, args.num_envs
+    )
+    num_envs = args.num_envs
     epochs = args.total_steps // args.steps_per_epoch
     envs = VecEnv(args.env_id, num_envs, args.workers, args.seed)
     obs = envs.reset()
@@ -183,7 +232,9 @@ def main():
     penalty_opt = torch.optim.Adam([penalty_param], lr=5e-2, eps=1e-8)
 
     import safety_gymnasium, mujoco
-    config = {**vars(args), "epochs": epochs, "num_envs": num_envs, "clip_ratio": 0.2, "pi_lr": 3e-4,
+    config = {**vars(args), "device_resolved": str(device), "epochs": epochs,
+              "rollout_steps_per_env": rollout_steps, "episodes_per_epoch": episodes_per_epoch,
+              "clip_ratio": 0.2, "pi_lr": 3e-4,
               "vf_lr": 1e-3, "penalty_init": 1.0, "penalty_lr": 5e-2, "hidden": [256, 256],
               "kl_margin": 1.2, "log_std_init": -0.5, "python": platform.python_version(),
               "torch": torch.__version__, "mujoco": mujoco.__version__,
@@ -196,7 +247,7 @@ def main():
     ep_len = np.zeros(num_envs, dtype=int)
     cumulative_cost = 0.0
     start = time.time()
-    T = args.max_ep_len
+    T = rollout_steps
     for epoch in range(epochs):
         buf = {k: np.zeros((T, num_envs, *s), dtype=np.float32) for k, s in
                [("obs", (obs_dim,)), ("act", (act_dim,)), ("logp", ()), ("rew", ()), ("cost", ()),

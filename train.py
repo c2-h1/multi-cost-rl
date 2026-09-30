@@ -102,7 +102,13 @@ def make_env(args, seed, num_envs=None):
     return HumanoidBatch(n, args.horizon, seed, args.humanoid_id)
 
 
-def collect(model, env, device, deterministic=False):
+def collect(model, env, device, deterministic=False, retain_rollout=True):
+    """Collect complete episodes.
+
+    Evaluation only needs episode summaries.  Keeping every observation,
+    action, value, and signal on the accelerator during evaluation caused
+    avoidable memory spikes when several jobs evaluated together.
+    """
     obs = env.reset()
     observations, latents, log_probs, values, signals = [], [], [], [], []
     rewards, raw_costs = [], []
@@ -111,33 +117,44 @@ def collect(model, env, device, deterministic=False):
         with torch.no_grad():
             action, latent, logp, value = model.act(obs_t, deterministic)
         next_obs, reward, cost = env.step(action.cpu().numpy())
-        observations.append(obs_t)
-        latents.append(latent)
-        log_probs.append(logp)
-        values.append(value)
-        signals.append(torch.as_tensor(np.concatenate([reward[:, None], cost / env.budgets], -1), device=device))
+        if retain_rollout:
+            observations.append(obs_t)
+            latents.append(latent)
+            log_probs.append(logp)
+            values.append(value)
+            signals.append(torch.as_tensor(
+                np.concatenate([reward[:, None], cost / env.budgets], -1), device=device
+            ))
         rewards.append(reward)
         raw_costs.append(cost)
         obs = next_obs
-    return {"obs": torch.stack(observations), "latent": torch.stack(latents),
-            "logp": torch.stack(log_probs), "values": torch.stack(values),
-            "signals": torch.stack(signals), "returns": np.stack(rewards).sum(0),
-            "costs": np.stack(raw_costs).sum(0), "diagnostics": env.diagnostics()}
+    result = {"returns": np.stack(rewards).sum(0),
+              "costs": np.stack(raw_costs).sum(0), "diagnostics": env.diagnostics()}
+    if retain_rollout:
+        result.update({"obs": torch.stack(observations), "latent": torch.stack(latents),
+                       "logp": torch.stack(log_probs), "values": torch.stack(values),
+                       "signals": torch.stack(signals)})
+    return result
 
 
-def collect_chunked(model, args, seed, episodes, device, deterministic=False, chunk=10):
+def collect_chunked(model, args, seed, episodes, device, deterministic=False, chunk=None):
     """Evaluate `episodes` complete episodes, at most `chunk` simulators alive at once.
 
     Each Safety-Gymnasium env holds ~200 MB, so one 50-env batch per process
     would exhaust memory when several runs finish together.
     """
+    chunk = chunk or args.eval_num_envs
+    if chunk <= 0:
+        raise ValueError("eval-num-envs must be positive")
     parts, sizes = [], []
     for start in range(0, episodes, chunk):
         size = min(chunk, episodes - start)
         env = make_env(args, seed + start, size)
-        batch = collect(model, env, device, deterministic)
-        batch["layout_seeds"] = np.asarray(getattr(env, "layout_seeds", []))
-        env.close()
+        try:
+            batch = collect(model, env, device, deterministic, retain_rollout=False)
+            batch["layout_seeds"] = np.asarray(getattr(env, "layout_seeds", []))
+        finally:
+            env.close()
         parts.append(batch)
         sizes.append(size)
     weights = np.asarray(sizes) / episodes
@@ -193,7 +210,6 @@ def train(args):
     env = make_env(args, args.seed)
     # Intrinsic horizon comes from the environment when it defines one.
     args.horizon = env.horizon
-    evaluation = make_env(args, 10000 + args.seed, args.eval_episodes)
     model = ActorCritic(env.obs_dim, env.action_dim, len(env.cost_names)).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, eps=1e-5)
     lambdas = torch.full((len(env.cost_names) if args.method == "multi" else 1,), args.lambda_init, device=device)
@@ -233,10 +249,9 @@ def train(args):
             wb.log(metrics, step=int(metrics["env_steps"]))
         print(json.dumps(metrics), flush=True)
 
-    evaluation.rng = np.random.default_rng(10000 + args.seed)
     with torch.no_grad():
-        initial = collect(model, evaluation, device)
-    initial_metrics = summarize_rollout(initial, evaluation, "eval")
+        initial = collect_chunked(model, args, 10000 + args.seed, args.eval_episodes, device)
+    initial_metrics = summarize_rollout(initial, env, "eval")
     emit({"update": 0, "env_steps": 0, **initial_metrics})
     for update in range(1, args.updates + 1):
         batch = collect(model, env, device)
@@ -300,16 +315,16 @@ def train(args):
                 accelerator_state = torch.cuda.get_rng_state(device)
             elif device.type == "mps":
                 accelerator_state = torch.mps.get_rng_state()
-            # Same evaluation layouts at every checkpoint.
-            evaluation.rng = np.random.default_rng(10000 + args.seed)
+            # Same evaluation layouts at every checkpoint; environments are
+            # created in a small pool and closed immediately after use.
             with torch.no_grad():
-                evaluated = collect(model, evaluation, device)
+                evaluated = collect_chunked(model, args, 10000 + args.seed, args.eval_episodes, device)
             torch.random.set_rng_state(rng_state)
             if device.type == "cuda":
                 torch.cuda.set_rng_state(accelerator_state, device)
             elif device.type == "mps":
                 torch.mps.set_rng_state(accelerator_state)
-            metrics.update(summarize_rollout(evaluated, evaluation, "eval"))
+            metrics.update(summarize_rollout(evaluated, env, "eval"))
         if update % args.log_every == 0 or update % args.eval_every == 0 or update == args.updates:
             emit(metrics)
         if update % args.checkpoint_every == 0 or update == args.updates:
@@ -340,7 +355,6 @@ def train(args):
         wb.finish()
     log.close()
     env.close()
-    evaluation.close()
     print("COMPLETE " + json.dumps(summary), flush=True)
 
 
@@ -373,6 +387,8 @@ def parser():
     p.add_argument("--eval-every", type=int, default=25)
     p.add_argument("--eval-episodes", type=int, default=128)
     p.add_argument("--final-eval-episodes", type=int, default=512)
+    p.add_argument("--eval-num-envs", type=int, default=2,
+                   help="maximum evaluation simulators alive at once")
     p.add_argument("--checkpoint-every", type=int, default=100)
     p.add_argument("--log-every", type=int, default=10)
     p.add_argument("--wandb-mode", choices=("online", "offline", "disabled"), default="offline")
