@@ -6,4 +6,4 @@ external/
 runs/
 wandb/
 .DS_Store
-
+.setup.log

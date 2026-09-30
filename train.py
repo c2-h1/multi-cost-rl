@@ -77,11 +77,16 @@ def update_multipliers(lambdas, normalized_costs, method, dual_lr, target=1.0):
     return (lambdas + dual_lr * violation).clamp(min=0)
 
 
+def cost_penalty(advantages, lambdas, method):
+    if method == "unconstrained":
+        return torch.zeros_like(advantages[:, 0])
+    if method == "multi":
+        return (advantages[:, 1:] * lambdas).sum(-1)
+    return lambdas[0] * advantages[:, 1:].sum(-1)
+
+
 def combine_advantages(advantages, lambdas, method):
-    penalty = 0 if method == "unconstrained" else (
-        (advantages[:, 1:] * lambdas).sum(-1) if method == "multi"
-        else lambdas[0] * advantages[:, 1:].sum(-1))
-    mixed = advantages[:, 0] - penalty
+    mixed = advantages[:, 0] - cost_penalty(advantages, lambdas, method)
     # Normalize once, after mixing, preserving relative cost units.
     return (mixed - mixed.mean()) / (mixed.std(unbiased=False) + 1e-8)
 
@@ -90,6 +95,9 @@ def make_env(args, seed, num_envs=None):
     n = num_envs or args.num_envs
     if args.env == "toy":
         return TwoCostNavigation(n, args.horizon, seed)
+    if args.env == "safety":
+        from safety_adapter import SafetyGoalBatch
+        return SafetyGoalBatch(n, seed, args.safety_id, (args.budget_hazard, args.budget_vase))
     from humanoid_adapter import HumanoidBatch
     return HumanoidBatch(n, args.horizon, seed, args.humanoid_id)
 
@@ -115,6 +123,29 @@ def collect(model, env, device, deterministic=False):
             "logp": torch.stack(log_probs), "values": torch.stack(values),
             "signals": torch.stack(signals), "returns": np.stack(rewards).sum(0),
             "costs": np.stack(raw_costs).sum(0), "diagnostics": env.diagnostics()}
+
+
+def collect_chunked(model, args, seed, episodes, device, deterministic=False, chunk=10):
+    """Evaluate `episodes` complete episodes, at most `chunk` simulators alive at once.
+
+    Each Safety-Gymnasium env holds ~200 MB, so one 50-env batch per process
+    would exhaust memory when several runs finish together.
+    """
+    parts, sizes = [], []
+    for start in range(0, episodes, chunk):
+        size = min(chunk, episodes - start)
+        env = make_env(args, seed + start, size)
+        batch = collect(model, env, device, deterministic)
+        batch["layout_seeds"] = np.asarray(getattr(env, "layout_seeds", []))
+        env.close()
+        parts.append(batch)
+        sizes.append(size)
+    weights = np.asarray(sizes) / episodes
+    return {"returns": np.concatenate([b["returns"] for b in parts]),
+            "costs": np.concatenate([b["costs"] for b in parts]),
+            "layout_seeds": np.concatenate([b["layout_seeds"] for b in parts]),
+            "diagnostics": {k: float(sum(w * b["diagnostics"][k] for w, b in zip(weights, parts)))
+                            for k in parts[0]["diagnostics"]}}
 
 
 def summarize_rollout(batch, env, prefix):
@@ -160,6 +191,8 @@ def train(args):
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=False)
     env = make_env(args, args.seed)
+    # Intrinsic horizon comes from the environment when it defines one.
+    args.horizon = env.horizon
     evaluation = make_env(args, 10000 + args.seed, args.eval_episodes)
     model = ActorCritic(env.obs_dim, env.action_dim, len(env.cost_names)).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, eps=1e-5)
@@ -178,7 +211,7 @@ def train(args):
     source_dir = output / "source"
     source_dir.mkdir()
     hashes = {}
-    for name in ["train.py", "toy_env.py", "humanoid_adapter.py", "humanoid_costs.py"]:
+    for name in ["train.py", "toy_env.py", "safety_adapter.py", "humanoid_adapter.py", "humanoid_costs.py"]:
         path = Path(name)
         if path.exists():
             shutil.copy2(path, source_dir / name)
@@ -200,6 +233,7 @@ def train(args):
             wb.log(metrics, step=int(metrics["env_steps"]))
         print(json.dumps(metrics), flush=True)
 
+    evaluation.rng = np.random.default_rng(10000 + args.seed)
     with torch.no_grad():
         initial = collect(model, evaluation, device)
     initial_metrics = summarize_rollout(initial, evaluation, "eval")
@@ -209,7 +243,11 @@ def train(args):
         advantage, returns = generalized_advantage(batch["signals"], batch["values"], gae_lambda=args.gae_lambda)
         flat = {name: batch[name].flatten(0, 1) for name in ("obs", "latent", "logp")}
         # The rollout uses the old multipliers; update dual variables after PPO.
-        mixed = combine_advantages(advantage.flatten(0, 1), lambdas, args.method)
+        flat_advantage = advantage.flatten(0, 1)
+        mixed = combine_advantages(flat_advantage, lambdas, args.method)
+        # Scale check: a growing multiplier with negligible cost term suggests a units problem.
+        advantage_scale = {"train/adv_reward_abs": float(flat_advantage[:, 0].abs().mean()),
+                           "train/adv_weighted_cost_abs": float(cost_penalty(flat_advantage, lambdas, args.method).abs().mean())}
         returns = returns.flatten(0, 1)
         count = len(mixed)
         kls, policy_losses, value_losses = [], [], []
@@ -248,7 +286,7 @@ def train(args):
                    "train/approx_kl": float(np.mean(kls)) if kls else 0.0,
                    "train/policy_loss": float(np.mean(policy_losses)) if policy_losses else 0.0,
                    "train/value_loss": float(np.mean(value_losses)) if value_losses else 0.0,
-                   "train/kl_early_stop": stop,
+                   "train/kl_early_stop": stop, **advantage_scale,
                    **summarize_rollout(batch, env, "train")}
         for i, value in enumerate(lambdas):
             metrics[f"dual/lambda_{i}"] = float(value)
@@ -262,6 +300,8 @@ def train(args):
                 accelerator_state = torch.cuda.get_rng_state(device)
             elif device.type == "mps":
                 accelerator_state = torch.mps.get_rng_state()
+            # Same evaluation layouts at every checkpoint.
+            evaluation.rng = np.random.default_rng(10000 + args.seed)
             with torch.no_grad():
                 evaluated = collect(model, evaluation, device)
             torch.random.set_rng_state(rng_state)
@@ -273,14 +313,17 @@ def train(args):
         if update % args.log_every == 0 or update % args.eval_every == 0 or update == args.updates:
             emit(metrics)
         if update % args.checkpoint_every == 0 or update == args.updates:
-            torch.save({"model": model.state_dict(), "optimizer": optimizer.state_dict(),
-                        "multipliers": lambdas, "config": config, "update": update}, output / "checkpoint.pt")
+            state = {"model": model.state_dict(), "optimizer": optimizer.state_dict(),
+                     "multipliers": lambdas, "config": config, "update": update, "env_steps": update * count}
+            # Step-specific copies keep a common earlier checkpoint for matched-budget comparison.
+            torch.save(state, output / f"checkpoint-{update * count:09d}.pt")
+            torch.save(state, output / "checkpoint.pt")
     # Fresh final evaluation seeds, never used for policy or checkpoint selection.
-    heldout = make_env(args, 200000 + args.seed, args.final_eval_episodes)
     torch.manual_seed(300000 + args.seed)
     with torch.no_grad():
-        final_stochastic = collect(model, heldout, device)
-        final_deterministic = collect(model, heldout, device, deterministic=True)
+        final_stochastic = collect_chunked(model, args, 200000 + args.seed, args.final_eval_episodes, device)
+        final_deterministic = collect_chunked(model, args, 200000 + args.seed, args.final_eval_episodes,
+                                              device, deterministic=True)
     np.savez_compressed(output / "evaluation.npz", returns=final_stochastic["returns"],
                         costs=final_stochastic["costs"], deterministic_returns=final_deterministic["returns"],
                         deterministic_costs=final_deterministic["costs"], budgets=env.budgets)
@@ -288,8 +331,8 @@ def train(args):
                "env_steps": args.updates * args.horizon * args.num_envs,
                "elapsed_seconds": time.monotonic() - start,
                "initial": initial_metrics,
-               **summarize_rollout(final_stochastic, heldout, "final"),
-               **summarize_rollout(final_deterministic, heldout, "deterministic"),
+               **summarize_rollout(final_stochastic, env, "final"),
+               **summarize_rollout(final_deterministic, env, "deterministic"),
                "multipliers": lambdas.cpu().tolist(), "wandb": wandb_info}
     (output / "summary.json").write_text(json.dumps(summary, indent=2))
     if wb:
@@ -298,13 +341,15 @@ def train(args):
     log.close()
     env.close()
     evaluation.close()
-    heldout.close()
     print("COMPLETE " + json.dumps(summary), flush=True)
 
 
 def parser():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--env", choices=("toy", "humanoid"), default="toy")
+    p.add_argument("--env", choices=("toy", "safety", "humanoid"), default="toy")
+    p.add_argument("--safety-id", default="SafetyPointGoal2-v0")
+    p.add_argument("--budget-hazard", type=float, default=None, help="Safety-Gymnasium hazard budget, affected steps/episode")
+    p.add_argument("--budget-vase", type=float, default=None, help="Safety-Gymnasium vase budget, affected steps/episode")
     p.add_argument("--humanoid-id", default="h1-walk-v0")
     p.add_argument("--method", choices=METHODS, default="multi")
     p.add_argument("--seed", type=int, default=0)
@@ -342,6 +387,8 @@ if __name__ == "__main__":
     args = parser().parse_args()
     if not 0 < args.constraint_target <= 1:
         raise ValueError("constraint-target must be in (0, 1]")
+    if args.env == "safety" and (args.budget_hazard is None or args.budget_vase is None):
+        raise ValueError("--env safety requires explicit --budget-hazard and --budget-vase")
     if args.env == "humanoid" and args.device == "mps":
         raise ValueError("Use CPU for the small local humanoid pilot; CUDA is supported on a cluster")
     train(args)

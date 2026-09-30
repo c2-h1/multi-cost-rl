@@ -25,6 +25,17 @@ class CoreTests(unittest.TestCase):
         conservative = update_multipliers(torch.tensor([0.1]), costs, "aggregate_conservative", .5)
         self.assertGreater(float(conservative[0]), .1)
 
+    def test_pilot_multiplier_cases(self):
+        # (1.5, 0.5): only the hazard multiplier rises; aggregate sum sits exactly on target 2.
+        multi = update_multipliers(torch.tensor([0.1, 0.1]), torch.tensor([1.5, .5]), "multi", .02)
+        self.assertGreater(float(multi[0]), .1)
+        self.assertLess(float(multi[1]), .1)
+        loose = update_multipliers(torch.tensor([0.1]), torch.tensor([1.5, .5]), "aggregate_loose", .02)
+        torch.testing.assert_close(loose, torch.tensor([.1]))
+        # (0.5, 0.5): every positive multiplier falls.
+        self.assertTrue(bool((update_multipliers(torch.tensor([0.1, 0.1]), torch.tensor([.5, .5]), "multi", .02) < .1).all()))
+        self.assertLess(float(update_multipliers(torch.tensor([0.1]), torch.tensor([.5, .5]), "aggregate_loose", .02)[0]), .1)
+
     def test_advantage_normalization_preserves_cost_ratios(self):
         a = torch.tensor([[1., 0., 2.], [2., 1., 0.], [0., 2., 1.]])
         multipliers = torch.tensor([2., 3.])

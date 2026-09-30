@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 import torch
 
-from train import ActorCritic, collect, make_env, summarize_rollout
+from train import ActorCritic, collect_chunked, make_env, summarize_rollout
 
 
 def main():
@@ -17,6 +17,7 @@ def main():
     p.add_argument("--environment-seed", type=int, default=None)
     p.add_argument("--action-seed", type=int, default=None)
     p.add_argument("--deterministic", action="store_true")
+    p.add_argument("--output", default=None, help="Save per-episode returns/costs/layout seeds to this .npz")
     p.add_argument("--verify-saved", action="store_true", help="Check exact stored stochastic evaluation with original seeds/count")
     args = p.parse_args()
     torch.set_num_threads(2)
@@ -27,14 +28,23 @@ def main():
         args.episodes = config.final_eval_episodes
     environment_seed = args.environment_seed if args.environment_seed is not None else 200000 + config.seed
     action_seed = args.action_seed if args.action_seed is not None else 300000 + config.seed
-    env = make_env(config, environment_seed, args.episodes)
+    env = make_env(config, environment_seed, 1)  # dimensions and budgets only
     model = ActorCritic(env.obs_dim, env.action_dim, len(env.cost_names))
     model.load_state_dict(checkpoint["model"])
     model.eval()
     torch.manual_seed(action_seed)
     with torch.no_grad():
-        batch = collect(model, env, torch.device("cpu"), args.deterministic)
+        batch = collect_chunked(model, config, environment_seed, args.episodes, torch.device("cpu"), args.deterministic)
     metrics = summarize_rollout(batch, env, "replay")
+    # Distribution of raw episode costs, used to calibrate budgets from the unconstrained pilot.
+    for i, name in enumerate(env.cost_names):
+        for q in (50, 75, 90, 95):
+            metrics[f"replay/cost_{name}_p{q}"] = float(np.percentile(batch["costs"][:, i], q))
+    if args.output:
+        np.savez_compressed(args.output, returns=batch["returns"], costs=batch["costs"], budgets=env.budgets,
+                            layout_seeds=batch["layout_seeds"],
+                            environment_seed=environment_seed, action_seed=action_seed,
+                            deterministic=args.deterministic, checkpoint=args.checkpoint)
     if args.verify_saved:
         if args.deterministic:
             raise ValueError("Saved verification checks the primary stochastic evaluation")
