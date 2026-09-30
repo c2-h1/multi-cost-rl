@@ -12,6 +12,27 @@ python -m unittest test_core   # core math tests
 python validate_safety.py --video   # cost-signal validation -> runs/validation/
 ```
 
+### Memory
+
+Each Safety-Gymnasium env holds ~0.2 GB and each process ~0.7 GB (torch), so one
+`baseline_ppo.py` run (30 envs) needs ~9-11 GiB and a `train.py` job ~3.5-5 GiB.
+Six paper-repro runs launched at once OOM-killed a 62 GB host. Now:
+
+- every entry point refuses to start if its estimate does not fit in available memory
+  (cgroup-aware, so it respects SLURM `--mem`) and aborts itself if free memory drops
+  below 1.5 GiB (`memguard.py`);
+- `run_paper_repro.sh` and `run_pilot.py` queue jobs and run only as many as fit in
+  memory, CPU cores and GPUs (override with `MAX_JOBS=` / `--max-jobs`);
+- `train.py` evaluates in chunks of `--eval-chunk` envs instead of keeping
+  `--eval-episodes` simulators alive for the whole run.
+
+On the `titanxp` SLURM partition (2 GPUs, 6 cores per node), run the paper baseline as
+an array job with per-task memory limits:
+
+```bash
+mkdir -p runs/paper-repro && sbatch slurm/paper_repro.sbatch
+```
+
 ## Files
 
 | File | Purpose |
@@ -22,7 +43,8 @@ python validate_safety.py --video   # cost-signal validation -> runs/validation/
 | `evaluate.py` | Checkpoint evaluation on fixed layout seeds; per-episode `.npz`, cost quantiles |
 | `validate_safety.py` | Installation, cost-signal, and video checks |
 | `baseline_ppo.py` | Safety Gym paper baseline (PPO / PPO-Lagrangian, scalar cost, reference settings) |
-| `run_paper_repro.sh`, `compare_paper.py` | Launch the 6 reproduction runs; compare to paper Fig. 7 |
+| `run_paper_repro.sh`, `slurm/paper_repro.sbatch`, `compare_paper.py` | Launch the 6 reproduction runs (local queue or SLURM array); compare to paper Fig. 7 |
+| `memguard.py` | Memory preflight check and watchdog used by all launchers |
 | `toy_env.py` | Custom 2-cost toy (fallback only, not Safety-Gymnasium) |
 | `humanoid_*.py`, `test_humanoid_costs.py` | HumanoidBench H1 costs, for the semester extension (needs `external/humanoid-bench`) |
 | `docs/` | Math background (Korean), literature review |

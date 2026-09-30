@@ -22,6 +22,7 @@ import torch
 from torch import nn
 from torch.distributions import Normal
 
+import memguard
 from toy_env import TwoCostNavigation
 
 
@@ -188,12 +189,15 @@ def train(args):
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     device = torch.device(args.device)
+    if args.env != "toy" and not args.skip_memory_check:
+        # Training envs plus one evaluation chunk are alive at once.
+        memguard.check(memguard.estimate_gib(args.num_envs + args.eval_chunk, 1, device.type == "cuda"), "train.py")
+    memguard.start_watchdog()
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=False)
     env = make_env(args, args.seed)
     # Intrinsic horizon comes from the environment when it defines one.
     args.horizon = env.horizon
-    evaluation = make_env(args, 10000 + args.seed, args.eval_episodes)
     model = ActorCritic(env.obs_dim, env.action_dim, len(env.cost_names)).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, eps=1e-5)
     lambdas = torch.full((len(env.cost_names) if args.method == "multi" else 1,), args.lambda_init, device=device)
@@ -233,10 +237,14 @@ def train(args):
             wb.log(metrics, step=int(metrics["env_steps"]))
         print(json.dumps(metrics), flush=True)
 
-    evaluation.rng = np.random.default_rng(10000 + args.seed)
+    def evaluate_checkpoint():
+        # Same evaluation layouts at every checkpoint; at most eval_chunk
+        # simulators alive, so eval_episodes does not scale memory.
+        return collect_chunked(model, args, 10000 + args.seed, args.eval_episodes, device, chunk=args.eval_chunk)
+
     with torch.no_grad():
-        initial = collect(model, evaluation, device)
-    initial_metrics = summarize_rollout(initial, evaluation, "eval")
+        initial = evaluate_checkpoint()
+    initial_metrics = summarize_rollout(initial, env, "eval")
     emit({"update": 0, "env_steps": 0, **initial_metrics})
     for update in range(1, args.updates + 1):
         batch = collect(model, env, device)
@@ -300,16 +308,14 @@ def train(args):
                 accelerator_state = torch.cuda.get_rng_state(device)
             elif device.type == "mps":
                 accelerator_state = torch.mps.get_rng_state()
-            # Same evaluation layouts at every checkpoint.
-            evaluation.rng = np.random.default_rng(10000 + args.seed)
             with torch.no_grad():
-                evaluated = collect(model, evaluation, device)
+                evaluated = evaluate_checkpoint()
             torch.random.set_rng_state(rng_state)
             if device.type == "cuda":
                 torch.cuda.set_rng_state(accelerator_state, device)
             elif device.type == "mps":
                 torch.mps.set_rng_state(accelerator_state)
-            metrics.update(summarize_rollout(evaluated, evaluation, "eval"))
+            metrics.update(summarize_rollout(evaluated, env, "eval"))
         if update % args.log_every == 0 or update % args.eval_every == 0 or update == args.updates:
             emit(metrics)
         if update % args.checkpoint_every == 0 or update == args.updates:
@@ -321,9 +327,10 @@ def train(args):
     # Fresh final evaluation seeds, never used for policy or checkpoint selection.
     torch.manual_seed(300000 + args.seed)
     with torch.no_grad():
-        final_stochastic = collect_chunked(model, args, 200000 + args.seed, args.final_eval_episodes, device)
+        final_stochastic = collect_chunked(model, args, 200000 + args.seed, args.final_eval_episodes, device,
+                                           chunk=args.eval_chunk)
         final_deterministic = collect_chunked(model, args, 200000 + args.seed, args.final_eval_episodes,
-                                              device, deterministic=True)
+                                              device, deterministic=True, chunk=args.eval_chunk)
     np.savez_compressed(output / "evaluation.npz", returns=final_stochastic["returns"],
                         costs=final_stochastic["costs"], deterministic_returns=final_deterministic["returns"],
                         deterministic_costs=final_deterministic["costs"], budgets=env.budgets)
@@ -340,7 +347,6 @@ def train(args):
         wb.finish()
     log.close()
     env.close()
-    evaluation.close()
     print("COMPLETE " + json.dumps(summary), flush=True)
 
 
@@ -373,6 +379,9 @@ def parser():
     p.add_argument("--eval-every", type=int, default=25)
     p.add_argument("--eval-episodes", type=int, default=128)
     p.add_argument("--final-eval-episodes", type=int, default=512)
+    p.add_argument("--eval-chunk", type=int, default=10,
+                   help="Max evaluation simulators alive at once (~0.2 GB each for Safety-Gymnasium)")
+    p.add_argument("--skip-memory-check", action="store_true")
     p.add_argument("--checkpoint-every", type=int, default=100)
     p.add_argument("--log-every", type=int, default=10)
     p.add_argument("--wandb-mode", choices=("online", "offline", "disabled"), default="offline")

@@ -136,7 +136,8 @@ Plot the learning curves against the paper's figures and table.
 
 - [x] **R1:** `baseline_ppo.py` written following §5 and smoke tested for 2 epochs. Env stepping uses 4 worker processes per run; each epoch is still 30 × 1000-step episodes.
 - [x] **R2:** throughput is ~37 s/epoch alone and ~50 s/epoch with 6 runs concurrent, so each run takes **~4.6 h**.
-- [ ] **R3 (running since 2026-10-01 00:44 KST, ETA ~05:30 KST):** `./run_paper_repro.sh` started PPO and PPO-Lagrangian × seeds 0, 1, 2 at 10M steps, writing to `runs/paper-repro/<algo>-s<seed>/`.
+- [ ] **R3:** PPO and PPO-Lagrangian × seeds 0, 1, 2 at 10M steps, writing to `runs/paper-repro/<algo>-s<seed>/`.
+  - The first attempt (2026-10-01 00:44 KST, all 6 runs at once) ran the host out of memory: each run is ~9-11 GiB (30 envs × ~0.2 GB plus a torch import per worker). Move any partial `runs/paper-repro/*` away, then relaunch with the memory-aware queue `./run_paper_repro.sh` or, on the titanxp cluster, `sbatch slurm/paper_repro.sbatch` (1 GPU, 3 cores, 14 GB per run; two runs per node).
   - Monitor: `tail -n1 runs/paper-repro/*.log | cut -c1-200`
   - Compare: `python compare_paper.py` writes `paper-comparison.{md,png,json}`. It works mid-run.
   - Paper targets, read off the end of Fig. 7 (approximate; crop saved at `docs/reference/safetygym-fig7-pointgoal2.png`):

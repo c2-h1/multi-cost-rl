@@ -13,6 +13,7 @@ import sys
 import time
 from pathlib import Path
 
+import memguard
 from train import METHODS
 
 # Plan section 2 "Initial settings"; change only via a new --group.
@@ -33,8 +34,10 @@ def main():
                    default=["unconstrained", "aggregate_loose", "multi"])
     p.add_argument("--transitions", type=int, default=500_000)
     p.add_argument("--eval-every-transitions", type=int, default=100_000)
-    p.add_argument("--gpus", type=int, nargs="+", default=[0, 1, 2, 3])
+    p.add_argument("--gpus", type=int, nargs="+", default=None, help="Default: all visible GPUs (none -> CPU)")
     p.add_argument("--jobs-per-gpu", type=int, default=3, help="Simulation is CPU-bound; 9 concurrent jobs measured at ~1450 transitions/s total")
+    p.add_argument("--max-jobs", type=int, default=None,
+                   help="Concurrent job cap. Default: what fits in available memory and CPU cores")
     p.add_argument("--device", default="cuda", choices=("cpu", "cuda"))
     p.add_argument("--threads", type=int, default=2, help="Torch/OMP threads per job")
     p.add_argument("--wandb-mode", default="offline", choices=["online", "offline", "disabled"])
@@ -71,18 +74,37 @@ def main():
                 "jobs": [str(o) for o, _ in jobs]}
     (root / "manifest.json").write_text(json.dumps(manifest, indent=2))
     print(json.dumps(manifest, indent=2), flush=True)
+    if args.gpus is None:
+        import torch
+        args.gpus = list(range(torch.cuda.device_count())) if args.device == "cuda" else []
+    if args.device == "cuda" and not args.gpus:
+        raise SystemExit("No GPU visible; pass --device cpu")
+    # Per job: train envs + one eval chunk (10) of ~0.2 GB each, plus torch/CUDA.
+    per_job = memguard.estimate_gib(FROZEN["num_envs"] + 10, 1, args.device == "cuda")
+    available = memguard.available_bytes()
+    fit_memory = int((available / memguard.GIB - 4) // per_job) if available else len(jobs)
+    fit_cpu = max(1, len(os.sched_getaffinity(0)) // args.threads)
+    max_jobs = args.max_jobs or min(fit_memory, fit_cpu)
+    if max_jobs < 1:
+        raise SystemExit(f"Not enough memory for one job (~{per_job:.1f} GiB + 4 GiB reserve)")
+    slots = [gpu for _ in range(args.jobs_per_gpu) for gpu in args.gpus] if args.gpus else [None] * max_jobs
+    slots = slots[:max_jobs]
+    print(f"{len(slots)} concurrent jobs (~{per_job:.1f} GiB each; memory fits {fit_memory}, cores fit {fit_cpu})",
+          flush=True)
     if args.dry_run:
         print(" ".join(jobs[0][1]) if jobs else "No jobs")
         return
 
-    slots = [gpu for gpu in args.gpus for _ in range(args.jobs_per_gpu)]
     running, failed = {}, []
     while jobs or running:
         for slot in [s for s in range(len(slots)) if s not in running]:
             if not jobs:
                 break
+            available = memguard.available_bytes()
+            if available is not None and available / memguard.GIB < per_job + 4:
+                break  # wait for memory to free up (other users, finishing evaluations)
             output, command = jobs.pop(0)
-            env = dict(os.environ, CUDA_VISIBLE_DEVICES=str(slots[slot]),
+            env = dict(os.environ, CUDA_VISIBLE_DEVICES="" if slots[slot] is None else str(slots[slot]),
                        OMP_NUM_THREADS=str(args.threads), MKL_NUM_THREADS=str(args.threads),
                        MUJOCO_GL="egl")
             log = open(root / f"{output.name}.log", "w")

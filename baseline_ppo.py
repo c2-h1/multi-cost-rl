@@ -28,6 +28,8 @@ import numpy as np
 import torch
 from torch import nn
 
+import memguard
+
 
 def worker(remote, env_id, num_envs, seed):
     import safety_gymnasium
@@ -151,6 +153,7 @@ def main():
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--threads", type=int, default=2)
     p.add_argument("--output", required=True)
+    p.add_argument("--skip-memory-check", action="store_true")
     # Reference defaults; exposed only for smoke tests.
     p.add_argument("--gamma", type=float, default=0.99)
     p.add_argument("--lam", type=float, default=0.97)
@@ -160,6 +163,12 @@ def main():
     p.add_argument("--vf-iters", type=int, default=80)
     args = p.parse_args()
 
+    num_envs = args.steps_per_epoch // args.max_ep_len
+    assert num_envs * args.max_ep_len == args.steps_per_epoch
+    # ~30 x 0.2 GB of envs + one torch import per worker: ~8-10 GiB per run.
+    if not args.skip_memory_check:
+        memguard.check(memguard.estimate_gib(num_envs, 1 + args.workers, args.device == "cuda"), "baseline_ppo.py")
+    memguard.start_watchdog()
     torch.set_num_threads(args.threads)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -168,8 +177,6 @@ def main():
     output.mkdir(parents=True, exist_ok=False)
     shutil.copy2(__file__, output / "baseline_ppo.py")
 
-    num_envs = args.steps_per_epoch // args.max_ep_len
-    assert num_envs * args.max_ep_len == args.steps_per_epoch
     epochs = args.total_steps // args.steps_per_epoch
     envs = VecEnv(args.env_id, num_envs, args.workers, args.seed)
     obs = envs.reset()
