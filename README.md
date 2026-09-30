@@ -47,6 +47,9 @@ mkdir -p runs/paper-repro && sbatch slurm/paper_repro.sbatch
 | `safety_adapter.py` | Batched `SafetyPointGoal2-v0` with hazard/vase indicator costs |
 | `run_pilot.py` | Parallel launcher for the method × seed matrix, with frozen settings |
 | `evaluate.py` | Checkpoint evaluation on fixed layout seeds; per-episode `.npz`, cost quantiles |
+| `pipeline.py` | Unattended Stages 1–3: calibration, pilots, main runs, held-out eval, analysis, video |
+| `analyze_pilot.py` | Stage 3 figures (curves, multipliers, cost space) and per-seed tables |
+| `render_policies.py` | Side-by-side video of trained policies on one layout |
 | `validate_safety.py` | Installation, cost-signal, and video checks |
 | `baseline_ppo.py` | Safety Gym paper baseline (PPO / PPO-Lagrangian, scalar cost, reference settings) |
 | `run_paper_repro.sh`, `slurm/paper_repro.sbatch`, `compare_paper.py` | Launch the 6 reproduction runs (local queue or SLURM array); compare to paper Fig. 7 |

@@ -33,12 +33,13 @@ def cost_indicators(info):
 class SafetyGoalBatch:
     cost_names = ("hazard", "vase")
 
-    def __init__(self, num_envs, seed, env_id="SafetyPointGoal2-v0", budgets=(1.0, 1.0)):
+    def __init__(self, num_envs, seed, env_id="SafetyPointGoal2-v0", budgets=(1.0, 1.0), **make_kwargs):
+        """`make_kwargs` go to safety_gymnasium.make, e.g. render_mode="rgb_array" for videos."""
         import safety_gymnasium
 
         self.num_envs = num_envs
         self.rng = np.random.default_rng(seed)
-        self.envs = [safety_gymnasium.make(env_id) for _ in range(num_envs)]
+        self.envs = [safety_gymnasium.make(env_id, **make_kwargs) for _ in range(num_envs)]
         env = self.envs[0]
         self.horizon = int(env.spec.max_episode_steps)
         if self.horizon != env.unwrapped.task.num_steps:

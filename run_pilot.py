@@ -22,6 +22,21 @@ FROZEN = {"env": "safety", "safety_id": "SafetyPointGoal2-v0", "num_envs": 4,
           "gae_lambda": 0.95, "target_kl": 0.03, "value_coef": 1.0,
           "entropy_coef": 0.0, "lambda_init": 0.1, "dual_lr": 0.02,
           "constraint_target": 1.0, "eval_episodes": 10, "final_eval_episodes": 50}
+HORIZON = 1000  # verified native SafetyPointGoal2-v0 limit; train.py re-checks
+
+
+def train_command(method, seed, updates, eval_every, budgets, output, group,
+                  device="cpu", threads=2, wandb_mode="offline"):
+    """train.py command with the FROZEN settings; every stage builds commands here."""
+    command = [sys.executable, "train.py", "--method", method, "--seed", str(seed),
+               "--updates", str(updates), "--eval-every", str(eval_every),
+               "--checkpoint-every", str(eval_every), "--log-every", "1",
+               "--budget-hazard", str(budgets[0]), "--budget-vase", str(budgets[1]),
+               "--device", device, "--threads", str(threads),
+               "--wandb-mode", wandb_mode, "--group", group, "--output", str(output)]
+    for key, value in FROZEN.items():
+        command += ["--" + key.replace("_", "-"), str(value)]
+    return command
 
 
 def main():
@@ -44,8 +59,7 @@ def main():
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args()
 
-    horizon = 1000  # verified native SafetyPointGoal2-v0 limit; train.py re-checks
-    per_update = FROZEN["num_envs"] * horizon
+    per_update = FROZEN["num_envs"] * HORIZON
     updates = -(-args.transitions // per_update)
     eval_every = max(1, args.eval_every_transitions // per_update)
     root = Path("runs") / args.group
@@ -59,14 +73,8 @@ def main():
                 continue
             if output.exists():
                 raise RuntimeError(f"Incomplete run exists: {output}; inspect it or use a new --group")
-            command = [sys.executable, "train.py", "--method", method, "--seed", str(seed),
-                       "--updates", str(updates), "--eval-every", str(eval_every),
-                       "--checkpoint-every", str(eval_every), "--log-every", "1",
-                       "--budget-hazard", str(args.budget_hazard), "--budget-vase", str(args.budget_vase),
-                       "--device", args.device, "--threads", str(args.threads),
-                       "--wandb-mode", args.wandb_mode, "--group", args.group, "--output", str(output)]
-            for key, value in FROZEN.items():
-                command += ["--" + key.replace("_", "-"), str(value)]
+            command = train_command(method, seed, updates, eval_every, (args.budget_hazard, args.budget_vase),
+                                    output, args.group, args.device, args.threads, args.wandb_mode)
             jobs.append((output, command))
     manifest = {"group": args.group, "frozen": FROZEN, "updates": updates,
                 "transitions_per_run": updates * per_update,

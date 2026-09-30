@@ -150,11 +150,17 @@ Plot the learning curves against the paper's figures and table.
     The paper's PPO-Lagrangian barely learns the task on PointGoal2; that is the published result, not a bug.
   - Early observation: the policy update usually stops after 1–2 of 80 iterations (KL > 0.012). Our code follows the reference: unnormalized observations into a 256-wide layer make one Adam step already exceed the KL limit. If PPO's final return falls far short of ≈ 22, check this first.
   - If results match, continue with Stage 1. If not, diagnose before the main experiment.
-- [ ] **Stage 1** (~1–3 h): unconstrained development pilot with seed 100, 500k steps:
+- **Unattended Stages 1–3:** `pipeline.py` runs everything below in order with the FROZEN settings (calibration, pilots, waiting for Stage R, the 9 main runs, held-out evaluation, analysis, video, `results.tgz`). It is resumable; progress is in `runs/pipeline/pipeline.log` and `status.json`. It freezes the calibrated budgets automatically and does **not** make the one manual adjustment; review the pilot numbers in `status.json`.
+
+  ```bash
+  nohup .venv/bin/python pipeline.py > runs/pipeline.out 2>&1 < /dev/null &
+  ```
+
+- [ ] **Stage 1** (~1–3 h): unconstrained development pilot with seed 100, 500k steps. **`--num-envs 4` is required**: `train.py` defaults to 64 envs, which makes 125 updates 8M steps instead of 500k (an earlier version of this command omitted it):
 
   ```bash
   python train.py --env safety --method unconstrained --seed 100 --budget-hazard 1 --budget-vase 1 \
-    --updates 125 --dual-lr 0.02 --eval-every 25 --checkpoint-every 25 --eval-episodes 10 \
+    --num-envs 4 --updates 125 --dual-lr 0.02 --eval-every 25 --checkpoint-every 25 --eval-episodes 10 \
     --final-eval-episodes 50 --wandb-mode offline --group dev --output runs/dev/unconstrained-s100
   python evaluate.py runs/dev/unconstrained-s100/checkpoint.pt --episodes 30 --environment-seed 500000 \
     --output runs/dev/unconstrained-s100/calibration.npz
@@ -183,9 +189,9 @@ Plot the learning curves against the paper's figures and table.
   ```
 
   - Use the stochastic policy. Deterministic runs are only for labeled videos.
-  - **Analysis script still to write:** learning curves with budget lines, a cost-space scatter showing the "both ≤ 1" square and the x + y = 2 line, and multiplier trajectories.
+  - **Analysis:** `python analyze_pilot.py runs/sg-pilot-v1` writes `analysis/`: learning curves with budget lines, a cost-space scatter showing the "both ≤ 1" square and the x + y = 2 line, multiplier trajectories, and the per-seed table below (`results.md/.csv/.json`).
   - Per-seed table: `method | seed | steps | return | goals/ep | C_h/d_h | C_v/d_v | both within?`, plus exceedance rates and cumulative training cost.
-  - A 20–40 s video of all three methods on the same layout.
+  - A ~33 s video of all three methods on the same layout: `python render_policies.py runs/sg-pilot-v1/{unconstrained,aggregate_loose,multi}-s0 --output runs/sg-pilot-v1/analysis/methods-s0.mp4` (overhead camera, deterministic actions, labeled with running costs vs budgets).
 - [ ] **Stage 4:** meeting package.
   - Materials: one-page brief, figures, table, video, and the 2–3 page semester proposal.
   - Meeting outline:
