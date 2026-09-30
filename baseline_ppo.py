@@ -128,13 +128,23 @@ def resolve_device(requested):
         required_arch = f"sm_{capability[0]}{capability[1]}"
         compiled_arches = torch.cuda.get_arch_list()
         if compiled_arches and required_arch not in compiled_arches:
-            raise RuntimeError(
-                f"PyTorch was compiled for {compiled_arches}, but {torch.cuda.get_device_name(device)} "
-                f"requires {required_arch}. Install a wheel containing {required_arch} or use --device cpu."
+            print(
+                f"warning: {required_arch} is not listed explicitly in PyTorch architectures "
+                f"{compiled_arches}; testing a real kernel on {torch.cuda.get_device_name(device)}",
+                flush=True,
             )
-        # Fail before allocating environments if the CUDA runtime/wheel is unusable.
-        (torch.ones(1, device=device) + 1).cpu()
-        torch.cuda.synchronize(device)
+        # The architecture list can omit a compatible minor capability (for
+        # example sm_61 with a Pascal-capable sm_60 build). A real kernel is
+        # the authoritative check and still runs before environments exist.
+        try:
+            (torch.ones(1, device=device) + 1).cpu()
+            torch.cuda.synchronize(device)
+        except RuntimeError as error:
+            raise RuntimeError(
+                f"PyTorch could not execute a CUDA kernel on {torch.cuda.get_device_name(device)} "
+                f"({required_arch}); compiled architectures: {compiled_arches}. Use --device cpu "
+                "or install a compatible wheel."
+            ) from error
     return device
 
 
