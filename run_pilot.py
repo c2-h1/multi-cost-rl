@@ -26,15 +26,15 @@ HORIZON = 1000  # verified native SafetyPointGoal2-v0 limit; train.py re-checks
 
 
 def train_command(method, seed, updates, eval_every, budgets, output, group,
-                  device="cpu", threads=2, wandb_mode="offline"):
-    """train.py command with the FROZEN settings; every stage builds commands here."""
+                  device="cpu", threads=2, wandb_mode="offline", settings=None):
+    """train.py command with the FROZEN settings (or `settings`); every stage builds commands here."""
     command = [sys.executable, "train.py", "--method", method, "--seed", str(seed),
                "--updates", str(updates), "--eval-every", str(eval_every),
                "--checkpoint-every", str(eval_every), "--log-every", "1",
                "--budget-hazard", str(budgets[0]), "--budget-vase", str(budgets[1]),
                "--device", device, "--threads", str(threads),
                "--wandb-mode", wandb_mode, "--group", group, "--output", str(output)]
-    for key, value in FROZEN.items():
+    for key, value in (settings or FROZEN).items():
         command += ["--" + key.replace("_", "-"), str(value)]
     return command
 
@@ -56,10 +56,20 @@ def main():
     p.add_argument("--device", default="cuda", choices=("cpu", "cuda"))
     p.add_argument("--threads", type=int, default=2, help="Torch/OMP threads per job")
     p.add_argument("--wandb-mode", default="offline", choices=["online", "offline", "disabled"])
+    p.add_argument("--set", nargs="+", default=[], metavar="KEY=VALUE",
+                   help="Override FROZEN settings for a follow-up group, e.g. --set dual_lr=0.04; recorded in manifest.json")
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args()
+    settings = dict(FROZEN)
+    overrides = {}
+    for item in args.set:
+        key, _, value = item.partition("=")
+        if key not in FROZEN or not value:
+            raise SystemExit(f"--set expects KEY=VALUE with KEY in {sorted(FROZEN)}, got {item!r}")
+        overrides[key] = type(FROZEN[key])(value)
+    settings.update(overrides)
 
-    per_update = FROZEN["num_envs"] * HORIZON
+    per_update = settings["num_envs"] * HORIZON
     updates = -(-args.transitions // per_update)
     eval_every = max(1, args.eval_every_transitions // per_update)
     root = Path("runs") / args.group
@@ -74,9 +84,9 @@ def main():
             if output.exists():
                 raise RuntimeError(f"Incomplete run exists: {output}; inspect it or use a new --group")
             command = train_command(method, seed, updates, eval_every, (args.budget_hazard, args.budget_vase),
-                                    output, args.group, args.device, args.threads, args.wandb_mode)
+                                    output, args.group, args.device, args.threads, args.wandb_mode, settings)
             jobs.append((output, command))
-    manifest = {"group": args.group, "frozen": FROZEN, "updates": updates,
+    manifest = {"group": args.group, "frozen": FROZEN, "overrides": overrides, "updates": updates,
                 "transitions_per_run": updates * per_update,
                 "budgets": {"hazard": args.budget_hazard, "vase": args.budget_vase},
                 "jobs": [str(o) for o, _ in jobs]}
