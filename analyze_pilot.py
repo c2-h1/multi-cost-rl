@@ -256,13 +256,18 @@ def write_tables(runs, out):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("root", help="Group directory, e.g. runs/sg-pilot-v1")
+    p.add_argument("root", help="Group directory, e.g. runs/sg-pilot-v1; analysis/ is written here")
+    p.add_argument("extra", nargs="*", help="More group directories with the same budgets, analyzed together")
     p.add_argument("--smooth", type=int, default=20, help="Moving-average window in updates")
     args = p.parse_args()
     root = Path(args.root)
-    runs = load_runs(root)
+    runs = sorted(sum((load_runs(Path(r)) for r in [root, *args.extra]), []),
+                  key=lambda r: (ORDER.index(r["method"]) if r["method"] in ORDER else 99, r["seed"]))
     if not runs:
         raise SystemExit(f"No runs with config.json under {root}")
+    budgets = {tuple(r["budgets"]) for r in runs}
+    if len(budgets) > 1:
+        raise SystemExit(f"Runs use different budgets {sorted(budgets)}; analyze them separately")
     out = root / "analysis"
     out.mkdir(exist_ok=True)
     plot_learning_curves(runs, out, args.smooth)
