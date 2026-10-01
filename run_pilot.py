@@ -52,7 +52,7 @@ def main():
     p.add_argument("--gpus", type=int, nargs="+", default=None, help="Default: all visible GPUs (none -> CPU)")
     p.add_argument("--jobs-per-gpu", type=int, default=3, help="Simulation is CPU-bound; 9 concurrent jobs measured at ~1450 transitions/s total")
     p.add_argument("--max-jobs", type=int, default=None,
-                   help="Concurrent job cap. Default: what fits in available memory and CPU cores")
+                   help="Upper bound on concurrent jobs; the actual number never exceeds what fits in memory and cores")
     p.add_argument("--device", default="cuda", choices=("cpu", "cuda"))
     p.add_argument("--threads", type=int, default=2, help="Torch/OMP threads per job")
     p.add_argument("--wandb-mode", default="offline", choices=["online", "offline", "disabled"])
@@ -102,7 +102,8 @@ def main():
     available = memguard.available_bytes()
     fit_memory = int((available / memguard.GIB - 4) // per_job) if available else len(jobs)
     fit_cpu = max(1, memguard.cpu_count() // args.threads)
-    max_jobs = args.max_jobs or min(fit_memory, fit_cpu)
+    # --max-jobs caps concurrency; it never exceeds what memory and cores allow.
+    max_jobs = min(args.max_jobs or fit_memory, fit_memory, fit_cpu)
     if max_jobs < 1:
         raise SystemExit(f"Not enough memory for one job (~{per_job:.1f} GiB + 4 GiB reserve)")
     slots = [gpu for _ in range(args.jobs_per_gpu) for gpu in args.gpus] if args.gpus else [None] * max_jobs

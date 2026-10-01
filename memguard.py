@@ -83,8 +83,9 @@ def check(needed_gib, what, reserve_gib=2.0):
                  f"(--skip-memory-check to override).")
 
 
-def start_watchdog(min_free_gib=1.5, interval=5.0):
-    """Kill this process if free memory drops below `min_free_gib`.
+def start_watchdog(min_free_gib=None, interval=5.0):
+    """Kill this process if free memory drops below `min_free_gib`
+    (default: $MEMGUARD_MIN_FREE_GIB, else 1.5; raise it on shared servers).
 
     A last resort for when something else on the machine eats memory: losing
     one run is better than the kernel OOM-killer taking down the host.
@@ -92,6 +93,8 @@ def start_watchdog(min_free_gib=1.5, interval=5.0):
     """
     if available_bytes() is None:
         return
+    if min_free_gib is None:
+        min_free_gib = float(os.environ.get("MEMGUARD_MIN_FREE_GIB", 1.5))
 
     def watch():
         while True:
