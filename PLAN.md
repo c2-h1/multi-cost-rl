@@ -122,6 +122,19 @@ Plot the learning curves against the paper's figures and table.
 
 ## 6. Status and handoff
 
+### Current state (2026-10-01 morning KST): everything runs on a Vast.ai instance
+
+- **Instance:** Vast.ai, 1× RTX A4000, 32 of 64 threads (Threadripper), 129 GB RAM, $0.172/h. SSH: `ssh -p 57281 root@222.230.13.166`. Repo at `/workspace/multi-cost-rl`, branch `branch1`. Auto-tmux on login keeps the Stage R launcher in the foreground of window 0, so **don't type in the interactive SSH session**; run one-shot commands as `ssh -p 57281 root@222.230.13.166 '<command>'`.
+- **Stage R** (`run_paper_repro.sh`, 6 runs at once) started 2026-09-30 18:48 UTC. All 6 healthy at epoch 17: PPO EpRet ≈ 7.5 rising, EpCost ≈ 200; PPO-Lagrangian EpCost 10–50, EpRet ≈ 0.
+- **`pipeline.py`** started 2026-10-01 01:42 UTC. It stopped a wrongly sized Stage 1 run (64 envs, moved to `runs/dev/unconstrained-s100.aborted-*`) and restarted Stage 1 correctly. It then calibrates budgets, runs pilots, waits for Stage R, runs the 9 main runs (group `sg-pilot-v1`, 2M steps) and Stage 3, and writes `/workspace/multi-cost-rl/results.tgz`.
+- **Check:** `ssh -p 57281 root@222.230.13.166 'grep -v "\] \\$ " /workspace/multi-cost-rl/runs/pipeline/pipeline.log | cut -c1-200'`. `DONE` means finished; `FAILED`/`CRASHED` means read `runs/pipeline/pipeline.log` and the named log, fix, `git pull` on the instance, and rerun the same start command (it resumes).
+- **When DONE:** `scp -P 57281 root@222.230.13.166:/workspace/multi-cost-rl/results.tgz ~/Downloads/`, then destroy the instance (it bills until destroyed).
+- **Review before presenting:**
+  - `runs/pipeline/status.json`: calibration warnings, the automatically frozen budgets, pilot multipliers. The one manual adjustment was not made.
+  - `runs/paper-repro/paper-comparison.md`: the Stage R verdict.
+  - `runs/sg-pilot-v1/analysis/`: `results.md`, the figures and the video.
+- **Memory fixes (this branch):** the original OOM came from 6 × ~9–11 GiB Stage R runs on a 62 GB host. `memguard.py`, queued launchers, `slurm/paper_repro.sbatch` for the titanxp cluster. On macOS one run needs ~10 GiB free.
+
 ### Done
 
 - [x] Environment built and versions recorded (§2).
