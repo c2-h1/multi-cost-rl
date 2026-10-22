@@ -1,6 +1,6 @@
 # E4 sg-pilot-v1: one shared budget vs two separate budgets (SafetyPointGoal2)
 
-**Source:** lab-meeting notes 2026-09-30 (`260930.pdf`, Task 3), transcribed. Raw outputs
+**Source:** lab-meeting notes 2026-09-30 ([`docs/2026-09-30-lab-meeting.pdf`](../../docs/2026-09-30-lab-meeting.pdf), Task 3), transcribed. Raw outputs
 (`runs/sg-pilot-v1/`, `analysis/`) are on the Vast.ai instance, not in this checkout.
 Config: `configs/safety/sg-pilot-v1.json` (code: branch1). Budgets from E3:
 d_hazard = 31.9, d_vase = 73.9 steps/episode; x_i = C_i / d_i.

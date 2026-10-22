@@ -1,6 +1,6 @@
 # E2 paper-repro: Safety Gym PPO / PPO-Lagrangian on SafetyPointGoal2
 
-**Source:** lab-meeting notes 2026-09-30 (`260930.pdf`, Task 2), transcribed. Raw outputs
+**Source:** lab-meeting notes 2026-09-30 ([`docs/2026-09-30-lab-meeting.pdf`](../../docs/2026-09-30-lab-meeting.pdf), Task 2), transcribed. Raw outputs
 (`runs/paper-repro*/`, `paper-comparison.{md,png,json}` from `compare_paper.py`) are not in
 this checkout. Config: `configs/safety/paper-repro.json`.
 

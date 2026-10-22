@@ -8,7 +8,7 @@ failed / superseded / **unknown** (could not be checked from this checkout).
 W&B files) for E2–E6 are in this checkout: they were produced on a Vast.ai instance and the
 titanxp cluster. Entries say where each fact comes from: *code* (launcher defaults at the
 recorded commit), *report* (a committed report), *notes* (lab-meeting notes 2026-09-30,
-`260930.pdf`, kept locally and untracked). Nothing marked unknown has been filled in from
+[`docs/2026-09-30-lab-meeting.pdf`](../2026-09-30-lab-meeting.pdf)). Nothing marked unknown has been filled in from
 current defaults.
 
 The lab-meeting notes number the stages differently: Task 1 = E1, Task 2 = E2, Task 3 = E3+E4.
