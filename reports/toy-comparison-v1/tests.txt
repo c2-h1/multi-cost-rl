@@ -1,0 +1,16 @@
+test_absorbing_goal_and_budget_units (test_core.CoreTests.test_absorbing_goal_and_budget_units) ... ok
+test_advantage_normalization_preserves_cost_ratios (test_core.CoreTests.test_advantage_normalization_preserves_cost_ratios) ... ok
+test_finite_horizon_returns_without_bootstrap (test_core.CoreTests.test_finite_horizon_returns_without_bootstrap) ... ok
+test_multiplier_signs_and_projection (test_core.CoreTests.test_multiplier_signs_and_projection) ... ok
+test_reproducible_environment (test_core.CoreTests.test_reproducible_environment) ... ok
+test_squash_is_bounded_and_initial_ratio_is_one (test_core.CoreTests.test_squash_is_bounded_and_initial_ratio_is_one) ... ok
+test_force_load_is_simulated_force_not_normalized_action (test_humanoid_costs.HumanoidCostIntegrationTests.test_force_load_is_simulated_force_not_normalized_action) ... ok
+test_invalid_margin_fails (test_humanoid_costs.HumanoidCostIntegrationTests.test_invalid_margin_fails) ... ok
+test_low_head_and_physical_failure_activate_fall_channel (test_humanoid_costs.HumanoidCostIntegrationTests.test_low_head_and_physical_failure_activate_fall_channel) ... ok
+test_near_joint_stop_is_visible_and_free_root_is_excluded (test_humanoid_costs.HumanoidCostIntegrationTests.test_near_joint_stop_is_visible_and_free_root_is_excluded) ... ok
+test_reward_dynamics_and_termination_are_preserved (test_humanoid_costs.HumanoidCostIntegrationTests.test_reward_dynamics_and_termination_are_preserved) ... ok
+
+----------------------------------------------------------------------
+Ran 11 tests in 3.867s
+
+OK

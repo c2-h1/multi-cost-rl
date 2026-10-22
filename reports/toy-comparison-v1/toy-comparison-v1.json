@@ -1,0 +1,106 @@
+{
+  "aggregate_conservative": {
+    "num_seeds": 3,
+    "metrics_mean_ci95": {
+      "final/return_mean": [
+        5.557116190592448,
+        0.015414064698243204
+      ],
+      "final/cost_hazard": [
+        0.04296875,
+        0.09907720224505497
+      ],
+      "final/cost_effort": [
+        7.698612689971924,
+        0.266168438846651
+      ],
+      "final/success_rate": [
+        1.0,
+        0.0
+      ],
+      "final/joint_episode_budget_pass_rate": [
+        0.4680989583333333,
+        0.20408474196584964
+      ]
+    },
+    "mean_feasible_seeds": 1
+  },
+  "aggregate_loose": {
+    "num_seeds": 3,
+    "metrics_mean_ci95": {
+      "final/return_mean": [
+        5.748270034790039,
+        0.03044745070724167
+      ],
+      "final/cost_hazard": [
+        0.3821614583333333,
+        0.403179118276834
+      ],
+      "final/cost_effort": [
+        12.114775657653809,
+        0.477443578201894
+      ],
+      "final/success_rate": [
+        1.0,
+        0.0
+      ],
+      "final/joint_episode_budget_pass_rate": [
+        0.0,
+        0.0
+      ]
+    },
+    "mean_feasible_seeds": 0
+  },
+  "multi": {
+    "num_seeds": 3,
+    "metrics_mean_ci95": {
+      "final/return_mean": [
+        5.573720137278239,
+        0.05253346304421297
+      ],
+      "final/cost_hazard": [
+        1.72265625,
+        2.2726208550615166
+      ],
+      "final/cost_effort": [
+        7.741074403127034,
+        0.6481750927227552
+      ],
+      "final/success_rate": [
+        1.0,
+        0.0
+      ],
+      "final/joint_episode_budget_pass_rate": [
+        0.2265625,
+        0.4441215042861704
+      ]
+    },
+    "mean_feasible_seeds": 1
+  },
+  "unconstrained": {
+    "num_seeds": 3,
+    "metrics_mean_ci95": {
+      "final/return_mean": [
+        5.735528945922852,
+        0.00982922053012916
+      ],
+      "final/cost_hazard": [
+        6.574869791666667,
+        0.3741052573299675
+      ],
+      "final/cost_effort": [
+        10.600122133890787,
+        0.2543582253443567
+      ],
+      "final/success_rate": [
+        1.0,
+        0.0
+      ],
+      "final/joint_episode_budget_pass_rate": [
+        0.0,
+        0.0
+      ]
+    },
+    "mean_feasible_seeds": 0
+  }
+}
