@@ -2,7 +2,9 @@
 
 All methods share the actor and a reward + m cost value network. Keeping cost
 heads even for scalar/unconstrained controls matches auxiliary supervision.
-Cost critics predict normalized episode costs; thresholds are therefore one.
+Cost critics predict weighted episode costs w_i * C_i, where w_i = 1/d_i
+(--cost-weights budget, thresholds are then one) or 1/max(C_i^0, floor) from the
+untrained policy pi_0 (--cost-weights pi0, see calibrate_pi0.py).
 """
 from __future__ import annotations
 
@@ -69,11 +71,20 @@ def generalized_advantage(signals, values, gamma=1.0, gae_lambda=0.95):
     return advantages, advantages + values
 
 
-def update_multipliers(lambdas, normalized_costs, method, dual_lr, target=1.0):
+def update_multipliers(lambdas, normalized_costs, method, dual_lr, target=1.0, weighted_budgets=None):
+    """normalized_costs are w_i*C_i; weighted_budgets are w_i*d_i (all ones when w_i = 1/d_i).
+
+    multi: w_i C_i <= w_i d_i.  aggregate_loose: sum w_i C_i <= sum w_i d_i.
+    aggregate_conservative: sum w_i C_i <= min_i w_i d_i, the largest shared
+    bound that still implies every per-cost constraint (1 when w_i = 1/d_i).
+    """
     if method == "unconstrained":
         return torch.zeros_like(lambdas)
-    violation = normalized_costs - target if method == "multi" else (
-        normalized_costs.sum().reshape(1) - target * (len(normalized_costs) if method == "aggregate_loose" else 1))
+    if weighted_budgets is None:
+        weighted_budgets = torch.ones_like(normalized_costs)
+    limits = target * weighted_budgets
+    violation = normalized_costs - limits if method == "multi" else (
+        normalized_costs.sum().reshape(1) - (limits.sum() if method == "aggregate_loose" else limits.min()))
     return (lambdas + dual_lr * violation).clamp(min=0)
 
 
@@ -102,13 +113,23 @@ def make_env(args, seed, num_envs=None):
     return HumanoidBatch(n, args.horizon, seed, args.humanoid_id)
 
 
-def collect(model, env, device, deterministic=False, retain_rollout=True):
+def load_pi0_costs(path, cost_names, env_id):
+    """Per-cost mean episode costs C_i^0 of pi_0 from a calibrate_pi0.py record."""
+    record = json.loads(Path(path).read_text())
+    if list(record["cost_names"]) != list(cost_names) or record["env_id"] != env_id:
+        raise ValueError(f"{path} is for {record['env_id']} {record['cost_names']}, not {env_id} {list(cost_names)}")
+    return np.asarray([record["pi0_mean_costs"][n] for n in cost_names], dtype=np.float32), record
+
+
+def collect(model, env, device, deterministic=False, retain_rollout=True, cost_scale=None):
     """Collect complete episodes.
 
     Evaluation only needs episode summaries.  Keeping every observation,
     action, value, and signal on the accelerator during evaluation caused
     avoidable memory spikes when several jobs evaluated together.
+    Training signals use cost / cost_scale (default: the budgets).
     """
+    cost_scale = env.budgets if cost_scale is None else cost_scale
     obs = env.reset()
     observations, latents, log_probs, values, signals = [], [], [], [], []
     rewards, raw_costs = [], []
@@ -123,7 +144,7 @@ def collect(model, env, device, deterministic=False, retain_rollout=True):
             log_probs.append(logp)
             values.append(value)
             signals.append(torch.as_tensor(
-                np.concatenate([reward[:, None], cost / env.budgets], -1), device=device
+                np.concatenate([reward[:, None], cost / cost_scale], -1), device=device
             ))
         rewards.append(reward)
         raw_costs.append(cost)
@@ -215,7 +236,22 @@ def train(args):
     lambdas = torch.full((len(env.cost_names) if args.method == "multi" else 1,), args.lambda_init, device=device)
     if args.method == "unconstrained":
         lambdas.zero_()
+    # Cost weights w_i = 1/cost_scale_i. Budget mode keeps the old division by d_i exactly.
+    env_id = args.safety_id if args.env == "safety" else args.env
+    pi0_costs = pi0_record = None
+    if args.pi0_calibration:
+        pi0_costs, pi0_record = load_pi0_costs(args.pi0_calibration, env.cost_names, env_id)
+        if pi0_record["seed"] != args.seed:
+            print(f"Note: pi_0 calibration seed {pi0_record['seed']} != training seed {args.seed}", flush=True)
+    if args.cost_weights == "pi0":
+        cost_scale = np.maximum(pi0_costs, args.weight_floor).astype(env.budgets.dtype)
+    else:
+        cost_scale = env.budgets
+    weighted_budgets = torch.as_tensor(env.budgets / cost_scale, device=device)
     config = vars(args).copy()
+    named = lambda values: None if values is None else dict(zip(env.cost_names, np.asarray(values, dtype=float).tolist()))
+    config.update({"cost_weight_values": named(1 / cost_scale), "pi0_costs": named(pi0_costs),
+                   "budgets_by_cost": named(env.budgets), "weighted_budgets": named(env.budgets / cost_scale)})
     config.update({"cost_names": list(env.cost_names), "budgets": env.budgets.tolist(),
                    "python": platform.python_version(), "torch": torch.__version__,
                    "numpy": np.__version__, "platform": platform.platform(),
@@ -233,6 +269,8 @@ def train(args):
             shutil.copy2(path, source_dir / name)
             hashes[name] = hashlib.sha256(path.read_bytes()).hexdigest()
     config["source_sha256"] = hashes
+    if args.pi0_calibration:
+        shutil.copy2(args.pi0_calibration, output / "pi0_calibration.json")
     (output / "config.json").write_text(json.dumps(config, indent=2))
     wb = start_wandb(args, output, config)
     wandb_info = {"mode": wb.settings.mode, "id": wb.id, "url": wb.url} if wb else {"mode": "disabled"}
@@ -254,7 +292,7 @@ def train(args):
     initial_metrics = summarize_rollout(initial, env, "eval")
     emit({"update": 0, "env_steps": 0, **initial_metrics})
     for update in range(1, args.updates + 1):
-        batch = collect(model, env, device)
+        batch = collect(model, env, device, cost_scale=cost_scale)
         advantage, returns = generalized_advantage(batch["signals"], batch["values"], gae_lambda=args.gae_lambda)
         flat = {name: batch[name].flatten(0, 1) for name in ("obs", "latent", "logp")}
         # The rollout uses the old multipliers; update dual variables after PPO.
@@ -293,8 +331,9 @@ def train(args):
                 value_losses.append(float(value_loss.detach()))
             if stop:
                 break
-        normalized = torch.as_tensor((batch["costs"] / env.budgets).mean(0), device=device)
-        lambdas = update_multipliers(lambdas, normalized, args.method, args.dual_lr, args.constraint_target)
+        normalized = torch.as_tensor((batch["costs"] / cost_scale).mean(0), device=device)
+        lambdas = update_multipliers(lambdas, normalized, args.method, args.dual_lr, args.constraint_target,
+                                     weighted_budgets)
         cumulative_cost += batch["costs"].sum(0)
         cumulative_excess += np.maximum(batch["costs"] - env.budgets, 0).sum(0)
         metrics = {"update": update, "env_steps": update * count,
@@ -364,6 +403,12 @@ def parser():
     p.add_argument("--safety-id", default="SafetyPointGoal2-v0")
     p.add_argument("--budget-hazard", type=float, default=None, help="Safety-Gymnasium hazard budget, affected steps/episode")
     p.add_argument("--budget-vase", type=float, default=None, help="Safety-Gymnasium vase budget, affected steps/episode")
+    p.add_argument("--cost-weights", choices=("budget", "pi0"), default="budget",
+                   help="budget: w_i = 1/d_i (old behavior); pi0: w_i = 1/max(C_i^0, floor) from --pi0-calibration")
+    p.add_argument("--pi0-calibration", default=None, help="calibrate_pi0.py JSON with C_i^0")
+    p.add_argument("--weight-floor", type=float, default=1.0, help="floor on C_i^0 for pi0 weights")
+    p.add_argument("--budget-from-pi0", type=float, default=None, metavar="ALPHA",
+                   help="Safety only: set every budget d_i = ALPHA * C_i^0 instead of --budget-hazard/--budget-vase")
     p.add_argument("--humanoid-id", default="h1-walk-v0")
     p.add_argument("--method", choices=METHODS, default="multi")
     p.add_argument("--seed", type=int, default=0)
@@ -403,6 +448,17 @@ if __name__ == "__main__":
     args = parser().parse_args()
     if not 0 < args.constraint_target <= 1:
         raise ValueError("constraint-target must be in (0, 1]")
+    if (args.cost_weights == "pi0" or args.budget_from_pi0 is not None) and not args.pi0_calibration:
+        raise ValueError("--cost-weights pi0 and --budget-from-pi0 need --pi0-calibration")
+    if not args.weight_floor > 0:
+        raise ValueError("weight-floor must be positive")
+    if args.budget_from_pi0 is not None:
+        if args.env != "safety" or not args.budget_from_pi0 > 0:
+            raise ValueError("--budget-from-pi0 needs --env safety and ALPHA > 0")
+        if args.budget_hazard is not None or args.budget_vase is not None:
+            raise ValueError("--budget-from-pi0 replaces --budget-hazard/--budget-vase; pass only one")
+        c0, _ = load_pi0_costs(args.pi0_calibration, ("hazard", "vase"), args.safety_id)
+        args.budget_hazard, args.budget_vase = (float(args.budget_from_pi0 * c) for c in c0)
     if args.env == "safety" and (args.budget_hazard is None or args.budget_vase is None):
         raise ValueError("--env safety requires explicit --budget-hazard and --budget-vase")
     if args.env == "humanoid" and args.device == "mps":
