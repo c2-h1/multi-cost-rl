@@ -37,6 +37,51 @@ class CoreTests(unittest.TestCase):
         self.assertTrue(bool((update_multipliers(torch.tensor([0.1, 0.1]), torch.tensor([.5, .5]), "multi", .02) < .1).all()))
         self.assertLess(float(update_multipliers(torch.tensor([0.1]), torch.tensor([.5, .5]), "aggregate_loose", .02)[0]), .1)
 
+    def test_budget_weights_reproduce_old_multiplier_update(self):
+        # Previous update_multipliers, verbatim: costs already divided by budgets, threshold one.
+        def old(lambdas, normalized, method, lr, target=1.0):
+            violation = normalized - target if method == "multi" else (
+                normalized.sum().reshape(1) - target * (len(normalized) if method == "aggregate_loose" else 1))
+            return (lambdas + lr * violation).clamp(min=0)
+        rng = np.random.default_rng(0)
+        budgets = np.array([31.9, 73.9], dtype=np.float32)
+        weighted_budgets = torch.as_tensor(budgets / budgets)  # w_i * d_i with w_i = 1/d_i, as train.py builds it
+        for _ in range(20):
+            normalized = torch.as_tensor((rng.uniform(0, 150, (4, 2)).astype(np.float32) / budgets).mean(0))
+            for method, size in (("multi", 2), ("aggregate_loose", 1), ("aggregate_conservative", 1)):
+                lambdas = torch.as_tensor(rng.uniform(0, 1, size).astype(np.float32))
+                for target in (1.0, 0.8):
+                    expected = old(lambdas, normalized, method, .02, target)
+                    self.assertTrue(torch.equal(update_multipliers(lambdas, normalized, method, .02, target, weighted_budgets), expected))
+                    self.assertTrue(torch.equal(update_multipliers(lambdas, normalized, method, .02, target), expected))
+
+    def test_weighted_violations(self):
+        costs, budgets = np.array([40., 3.], dtype=np.float32), np.array([31.9, 73.9], dtype=np.float32)
+        scale = np.maximum(np.array([25., .2], dtype=np.float32), 1.0)  # floor 1 on C^0
+        w = 1 / scale
+        weighted_costs, weighted_budgets = torch.as_tensor(costs / scale), torch.as_tensor(budgets / scale)
+        start = torch.tensor([100.])  # far from the projection at zero
+        aggregate = update_multipliers(start, weighted_costs, "aggregate_loose", 1., 1., weighted_budgets) - start
+        torch.testing.assert_close(aggregate, torch.tensor([float((w * (costs - budgets)).sum())]))
+        multi = update_multipliers(start.repeat(2), weighted_costs, "multi", 1., 1., weighted_budgets) - 100
+        torch.testing.assert_close(multi, torch.as_tensor(w * (costs - budgets)))
+        conservative = update_multipliers(start, weighted_costs, "aggregate_conservative", 1., 1., weighted_budgets) - start
+        torch.testing.assert_close(conservative, torch.tensor([float((w * costs).sum() - (w * budgets).min())]))
+
+    def test_collect_signals_use_cost_scale(self):
+        env = TwoCostNavigation(4, horizon=16, seed=5)
+        model = ActorCritic(env.obs_dim, env.action_dim, len(env.cost_names))
+
+        def rollout(**kwargs):  # fresh env and action RNG: identical episodes
+            torch.manual_seed(0)
+            return collect(model, TwoCostNavigation(4, horizon=16, seed=5), torch.device("cpu"), **kwargs)
+        default, budget = rollout(), rollout(cost_scale=env.budgets)
+        self.assertTrue(torch.equal(default["signals"], budget["signals"]))
+        scale = np.array([0.5, 4.0], dtype=np.float32)
+        weighted = rollout(cost_scale=scale)
+        np.testing.assert_equal(weighted["costs"], default["costs"])
+        np.testing.assert_allclose(weighted["signals"][..., 1:].sum(0).numpy() * scale, weighted["costs"], rtol=1e-5)
+
     def test_advantage_normalization_preserves_cost_ratios(self):
         a = torch.tensor([[1., 0., 2.], [2., 1., 0.], [0., 2., 1.]])
         multipliers = torch.tensor([2., 3.])
