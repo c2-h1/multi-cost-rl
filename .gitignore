@@ -13,3 +13,7 @@ wandb/
 checkpoint*/
 *.log
 *.out
+# Videos and other large artifacts (curated small results go in reports/)
+*.mp4
+*.gif
+*.webm
