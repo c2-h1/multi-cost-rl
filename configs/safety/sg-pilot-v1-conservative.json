@@ -1,0 +1,9 @@
+{
+  "id": "E5b", "name": "sg-pilot-v1-conservative: strict shared budget (x_h + x_v <= 1)", "status": "unknown",
+  "extends": "sg-pilot-v1.json",
+  "code": {"branch": "branch1", "commit": "b240033", "script": "run_followups.sh"},
+  "methods": ["aggregate_conservative"],
+  "seeds": {"train": [0, 1, 2]},
+  "train_args": {},
+  "unknown": ["whether these runs finished; outputs not in this checkout"]
+}

@@ -15,6 +15,7 @@ import os
 import platform
 import random
 import shutil
+import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -202,6 +203,30 @@ def summarize_rollout(batch, env, prefix):
     return result
 
 
+def git_state():
+    """Commit and whether tracked files differ from it (untracked files ignored)."""
+    try:
+        run = lambda *a: subprocess.run(["git", *a], capture_output=True, text=True, check=True,
+                                        cwd=Path(__file__).parent).stdout.strip()
+        return {"commit": run("rev-parse", "HEAD"), "branch": run("rev-parse", "--abbrev-ref", "HEAD"),
+                "dirty": bool(run("status", "--porcelain", "--untracked-files=no"))}
+    except (OSError, subprocess.CalledProcessError):
+        return {"commit": "unknown", "branch": "unknown", "dirty": None}
+
+
+def load_experiment_config(path):
+    """configs/*.json: train.py arguments live under "train_args" (argparse dest names).
+
+    "extends": "<relative path>" merges a base config's train_args underneath.
+    """
+    path = Path(path)
+    config = json.loads(path.read_text())
+    if "extends" in config:
+        base = load_experiment_config(path.parent / config["extends"])
+        config["train_args"] = {**base.get("train_args", {}), **config.get("train_args", {})}
+    return config
+
+
 def start_wandb(args, output, config):
     if args.wandb_mode == "disabled":
         return None
@@ -269,6 +294,14 @@ def train(args):
             shutil.copy2(path, source_dir / name)
             hashes[name] = hashlib.sha256(path.read_bytes()).hexdigest()
     config["source_sha256"] = hashes
+    config["git"] = git_state()
+    config["experiment_config"] = load_experiment_config(args.config) if args.config else None
+    config["evaluation_protocol"] = {
+        "checkpoint_eval": {"environment_seed": 10000 + args.seed, "episodes": args.eval_episodes,
+                            "chunk": args.eval_num_envs, "policy": "stochastic"},
+        "final_eval": {"environment_seed": 200000 + args.seed, "action_seed": 300000 + args.seed,
+                       "episodes": args.final_eval_episodes, "chunk": args.eval_num_envs,
+                       "policy": "stochastic and deterministic"}}
     if args.pi0_calibration:
         shutil.copy2(args.pi0_calibration, output / "pi0_calibration.json")
     (output / "config.json").write_text(json.dumps(config, indent=2))
@@ -441,11 +474,28 @@ def parser():
     p.add_argument("--entity", default=None)
     p.add_argument("--group", default="toy-pilot")
     p.add_argument("--output", required=True)
+    p.add_argument("--config", default=None, help="configs/*.json; its train_args become defaults, CLI flags override")
+    p.add_argument("--experiment-id", default=None, help="registry ID (docs/experiments/INDEX.md); default from --config")
     return p
 
 
+def parse_args(argv=None):
+    """CLI flags override --config train_args, which override parser defaults."""
+    p = parser()
+    known, _ = p.parse_known_args(argv)
+    if known.config:
+        experiment = load_experiment_config(known.config)
+        train_args = experiment.get("train_args", {})
+        unknown = sorted(set(train_args) - {a.dest for a in p._actions})
+        if unknown:
+            raise ValueError(f"{known.config} has train_args unknown to this train.py: {unknown} "
+                             f"(it may describe another commit: {experiment.get('code')})")
+        p.set_defaults(**train_args, experiment_id=experiment.get("id"))
+    return p.parse_args(argv)
+
+
 if __name__ == "__main__":
-    args = parser().parse_args()
+    args = parse_args()
     if not 0 < args.constraint_target <= 1:
         raise ValueError("constraint-target must be in (0, 1]")
     if (args.cost_weights == "pi0" or args.budget_from_pi0 is not None) and not args.pi0_calibration:

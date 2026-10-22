@@ -1,0 +1,22 @@
+{
+  "description": "Shared SafetyPointGoal2 settings: run_pilot.py FROZEN (PLAN.md section 4). Not an experiment by itself.",
+  "environment": {
+    "id": "SafetyPointGoal2-v0", "horizon": 1000, "gamma": 1.0, "layout": "10 hazards, 10 vases, random per reset",
+    "observation": "native 60 dims + elapsed fraction + absorbed flag",
+    "early_termination": "absorbing, reward and cost 0"
+  },
+  "reward": "Safety-Gymnasium native goal reward",
+  "costs": {
+    "hazard": "1[cost_hazards > 0] per step, summed over the episode",
+    "vase": "1[cost_vases_contact > 0 or cost_vases_velocity > 0] per step, summed over the episode"
+  },
+  "network": "actor 64x64 tanh, Gaussian latent + tanh squash, log_std init -0.7; critic 64x64 tanh with 1 reward + 2 cost heads",
+  "train_args": {
+    "env": "safety", "safety_id": "SafetyPointGoal2-v0", "num_envs": 4,
+    "epochs": 6, "minibatch_size": 512, "lr": 0.0003, "clip": 0.2,
+    "gae_lambda": 0.95, "target_kl": 0.03, "value_coef": 1.0, "entropy_coef": 0.0,
+    "lambda_init": 0.1, "dual_lr": 0.02, "constraint_target": 1.0,
+    "eval_episodes": 10, "final_eval_episodes": 50,
+    "eval_every": 25, "checkpoint_every": 25, "log_every": 1
+  }
+}

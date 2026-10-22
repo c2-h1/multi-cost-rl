@@ -5,7 +5,16 @@ import torch
 
 from toy_env import TwoCostNavigation
 from baseline_ppo import rollout_geometry
-from train import ActorCritic, collect, generalized_advantage, update_multipliers, combine_advantages
+from train import ActorCritic, collect, generalized_advantage, update_multipliers, combine_advantages, parse_args
+
+import importlib.util
+import json
+import tempfile
+from pathlib import Path
+
+_spec = importlib.util.spec_from_file_location("summarize_runs", Path(__file__).parent / "scripts" / "summarize_runs.py")
+summarize_runs = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(summarize_runs)
 
 
 class CoreTests(unittest.TestCase):
@@ -81,6 +90,34 @@ class CoreTests(unittest.TestCase):
         weighted = rollout(cost_scale=scale)
         np.testing.assert_equal(weighted["costs"], default["costs"])
         np.testing.assert_allclose(weighted["signals"][..., 1:].sum(0).numpy() * scale, weighted["costs"], rtol=1e-5)
+
+    def test_native_feasibility_differs_from_per_cost_budgets(self):
+        budgets, weights = [31.9, 73.9], [1 / 31.9, 1 / 73.9]
+        costs = [1.5 * 31.9, 0.4 * 73.9]  # x = (1.5, 0.4): sum 1.9
+        self.assertTrue(summarize_runs.native_feasible("aggregate_loose", costs, budgets, weights))
+        self.assertFalse(summarize_runs.native_feasible("aggregate_conservative", costs, budgets, weights))
+        self.assertFalse(summarize_runs.native_feasible("multi", costs, budgets, weights))
+        self.assertIsNone(summarize_runs.native_feasible("unconstrained", costs, budgets, weights))
+        self.assertTrue(summarize_runs.native_feasible("multi", [0.9 * 31.9, 73.9], budgets, weights))
+
+    def test_config_defaults_extends_and_cli_override(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "base.json").write_text(json.dumps({"train_args": {"dual_lr": 0.02, "num_envs": 4}}))
+            (Path(tmp) / "exp.json").write_text(json.dumps({"id": "EX", "extends": "base.json",
+                                                            "train_args": {"num_envs": 8, "updates": 7}}))
+            args = parse_args(["--config", f"{tmp}/exp.json", "--updates", "9", "--output", "o"])
+            self.assertEqual((args.dual_lr, args.num_envs, args.updates, args.experiment_id), (0.02, 8, 9, "EX"))
+            (Path(tmp) / "old.json").write_text(json.dumps({"train_args": {"eval_chunk": 10}}))
+            with self.assertRaises(ValueError):
+                parse_args(["--config", f"{tmp}/old.json", "--output", "o"])
+        self.assertEqual(parse_args(["--output", "o"]).dual_lr, 0.15)  # parser default unchanged
+
+    def test_repository_configs_load(self):
+        for path in Path(__file__).parent.joinpath("configs").rglob("*.json"):
+            config = json.loads(path.read_text())
+            if config.get("code", {}).get("branch") == "branch1":
+                continue  # branch1 arguments (eval_chunk) are refused by this train.py on purpose
+            parse_args(["--config", str(path), "--output", "o"])
 
     def test_advantage_normalization_preserves_cost_ratios(self):
         a = torch.tensor([[1., 0., 2.], [2., 1., 0.], [0., 2., 1.]])

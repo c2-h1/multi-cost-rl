@@ -1,0 +1,15 @@
+{
+  "id": "E7", "name": "humanoid-pilot: HumanoidBench H1 three-cost pilot", "status": "failed (did not learn to walk)",
+  "code": {"commit": "4ac4491", "humanoid_bench": "cb1189039151c8aadaaa987b442da54383c87fab (external/humanoid-bench)"},
+  "environment": {"id": "h1-walk-v0", "horizon": 256, "note": "modified 256-step horizon; a fall is absorbing with continuing fall-risk cost"},
+  "costs": {"fall_risk": "head height / torso tilt > 45 deg / fall", "joint_limit": "joint within 5% of its limit", "actuator_load": "actuator force within 5% of its limit"},
+  "budgets_per_step": {"fall_risk": 0.05, "joint_limit": 0.05, "actuator_load": 0.2},
+  "methods": ["multi"],
+  "seeds": {"train": [0]},
+  "train_args": {"env": "humanoid", "humanoid_id": "h1-walk-v0", "method": "multi", "seed": 0, "num_envs": 8,
+                 "horizon": 256, "updates": 300, "dual_lr": 0.02},
+  "steps_per_run": 614400,
+  "wandb": "https://wandb.ai/cch-eck-postech/multi-cost-rl/runs/jfn5p0c9",
+  "results": "reports/humanoid-pilot/",
+  "unknown": ["remaining PPO arguments (assumed train.py defaults at 4ac4491)"]
+}

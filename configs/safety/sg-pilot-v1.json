@@ -1,0 +1,16 @@
+{
+  "id": "E4", "name": "sg-pilot-v1: aggregate vs separate budgets", "status": "completed",
+  "extends": "base.json",
+  "code": {"branch": "branch1", "commit": "b240033 or earlier (pipeline.py, run_pilot.py)", "verified": "settings from run_pilot.py FROZEN + pipeline.py; results from lab-meeting notes 2026-09-30"},
+  "methods": ["unconstrained", "aggregate_loose", "multi"],
+  "seeds": {"train": [0, 1, 2]},
+  "train_args": {"updates": 500, "budget_hazard": 31.9, "budget_vase": 73.9, "device": "cpu", "threads": 2, "eval_chunk": 10},
+  "steps_per_run": 2000000,
+  "evaluation": {
+    "checkpoint_eval": "10 episodes, environment seed 10000+seed, every 25 updates, chunk 10",
+    "final_eval": "50 episodes, environment seed 200000+seed, action seed 300000+seed, chunk 10",
+    "heldout": "evaluate.py --episodes 50 --environment-seed 900000 --action-seed 900001 (chunk 10), stochastic"
+  },
+  "output": "runs/sg-pilot-v1/<method>-s<seed> on the Vast.ai instance; W&B disabled",
+  "unknown": ["wandb mode (pipeline default disabled)", "exact commit of the pipeline run"]
+}

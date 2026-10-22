@@ -1,0 +1,13 @@
+{
+  "id": "E2", "name": "paper-repro: Safety Gym PPO / PPO-Lagrangian (Ray et al. 2019)", "status": "completed",
+  "entry": "baseline_ppo.py (separate implementation that mirrors safety-starter-agents, not train.py)",
+  "code": {"branch": "unverified (main 822ed3c+ or branch1)", "verified": "results from lab-meeting notes 2026-09-30"},
+  "environment": {"id": "SafetyPointGoal2-v0", "cost": "Safety-Gymnasium scalar cost 1[any hazard or vase component > 0]", "cost_limit": 25},
+  "methods": ["ppo", "ppo_lagrangian"],
+  "seeds": {"train": [0, 1, 2]},
+  "baseline_args": {"total_steps": 10000000, "steps_per_epoch": 30000, "network": "256x256 tanh, separate pi / V_r / V_c",
+                    "gamma": 0.99, "gae_lambda": 0.97, "pi_lr": 0.0003, "vf_lr": 0.001, "train_iters": 80,
+                    "target_kl": 0.01, "penalty_init": 1.0, "penalty_lr": 0.05},
+  "evaluation": "final values average the last 5 epochs; cost rate = cumulative training cost / steps (compare_paper.py)",
+  "unknown": ["which branch's baseline_ppo.py produced the reported numbers", "output directory (runs/paper-repro or runs/paper-repro-safe)"]
+}

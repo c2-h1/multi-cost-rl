@@ -1,0 +1,19 @@
+{
+  "id": "E1", "name": "toy-comparison-v1: two-cost navigation", "status": "completed",
+  "code": {"commit": "4ac4491 (Initial commit; runs made 2026-09-20 from this code, per-run source snapshots in runs/)", "script": "run_suite.py (removed in fbda5c8)"},
+  "environment": {"id": "toy_env.TwoCostNavigation", "horizon": 64, "gamma": 1.0},
+  "costs": {"hazard": "1 per step inside the central disk |pos| < 0.34, budget 1.92 (= 64 x 0.03)",
+            "effort": "mean squared action per step, budget 7.68 (= 64 x 0.12)"},
+  "network": "actor 64x64 tanh, critic 64x64 tanh with 1 reward + 2 cost heads",
+  "methods": ["unconstrained", "aggregate_loose", "aggregate_conservative", "multi"],
+  "seeds": {"train": [0, 1, 2], "development": {"101": "dual_lr 0.02", "102": "dual_lr 0.02, constraint_target 0.9"}},
+  "train_args": {"env": "toy", "updates": 600, "num_envs": 64, "horizon": 64, "epochs": 6, "minibatch_size": 512,
+                 "lr": 0.0003, "dual_lr": 0.15, "constraint_target": 1.0, "lambda_init": 0.1, "gae_lambda": 0.95,
+                 "clip": 0.2, "target_kl": 0.03, "value_coef": 1.0, "entropy_coef": 0.0,
+                 "eval_every": 25, "eval_episodes": 128, "final_eval_episodes": 512, "wandb_mode": "online", "group": "toy-comparison-v1"},
+  "steps_per_run": 2457600,
+  "evaluation": "512 stochastic held-out episodes per final policy (environment seed 200000+seed)",
+  "results": "reports/toy-comparison-v1/",
+  "wandb": "https://wandb.ai/cch-eck-postech/multi-cost-rl (group toy-comparison-v1)",
+  "unknown": ["evaluation chunking at 4ac4491 differs from current collect_chunked, so current code may not reproduce the exact evaluation layouts"]
+}

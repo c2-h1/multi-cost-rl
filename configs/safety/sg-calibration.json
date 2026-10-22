@@ -1,0 +1,15 @@
+{
+  "id": "E3", "name": "sg-calibration (budgets 31.9 / 73.9)", "status": "completed",
+  "extends": "base.json",
+  "code": {"branch": "branch1", "commit": "b240033 or earlier", "script": "pipeline.py stage 1",
+           "verified": "budgets and protocol from pipeline.py, run_followups.sh and lab-meeting notes; raw outputs are on the Vast.ai instance, not in this checkout"},
+  "methods": ["unconstrained"],
+  "seeds": {"train": [100]},
+  "train_args": {"method": "unconstrained", "seed": 100, "updates": 125, "budget_hazard": 1, "budget_vase": 1, "eval_chunk": 10},
+  "evaluation": {
+    "calibration": "evaluate.py checkpoint.pt --episodes 30 --environment-seed 500000 (action seed 300000+seed), chunk 10",
+    "rule": "d_i = max(1, round(0.5 * mean C_i, 1)) over the 30 layouts"
+  },
+  "result": {"budget_hazard": 31.9, "budget_vase": 73.9},
+  "unknown": ["unconstrained mean costs and goals/episode of the calibration run (runs/pipeline/status.json on Vast.ai)"]
+}
