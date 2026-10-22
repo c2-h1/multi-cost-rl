@@ -8,6 +8,7 @@ explicitly after the unconstrained development pilot.
 import argparse
 import json
 import os
+import shlex
 import subprocess
 import sys
 import time
@@ -45,6 +46,10 @@ def main():
     p.add_argument("--device", default="auto", choices=("auto", "cpu", "cuda"))
     p.add_argument("--threads", type=int, default=2, help="Torch/OMP threads per job")
     p.add_argument("--wandb-mode", default="offline", choices=["online", "offline", "disabled"])
+    p.add_argument("--extra", default="",
+                   help='train.py flags appended to every job (they override FROZEN); "{seed}" is replaced, e.g. '
+                        '--extra "--config configs/safety/pi0-weights.json --eval-num-envs 10 '
+                        '--pi0-calibration runs/calibration/pi0_SafetyPointGoal2-v0_{seed}.json"')
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args()
 
@@ -91,8 +96,9 @@ def main():
                        "--wandb-mode", args.wandb_mode, "--group", args.group, "--output", str(output)]
             for key, value in FROZEN.items():
                 command += ["--" + key.replace("_", "-"), str(value)]
+            command += shlex.split(args.extra.replace("{seed}", str(seed)))
             jobs.append((output, command))
-    manifest = {"group": args.group, "frozen": FROZEN, "updates": updates,
+    manifest = {"group": args.group, "frozen": FROZEN, "extra": args.extra, "updates": updates,
                 "transitions_per_run": updates * per_update,
                 "resources": {"device": device, "slots": slots, "threads_per_job": args.threads},
                 "budgets": {"hazard": args.budget_hazard, "vase": args.budget_vase},
