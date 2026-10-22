@@ -7,3 +7,9 @@ runs/
 wandb/
 .DS_Store
 .setup.log
+# Results and large files: never commit
+*.npz
+*.pt
+checkpoint*/
+*.log
+*.out
