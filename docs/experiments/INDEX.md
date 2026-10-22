@@ -11,6 +11,8 @@ recorded commit), *report* (a committed report), *notes* (lab-meeting notes 2026
 [`docs/2026-09-30-lab-meeting.pdf`](../2026-09-30-lab-meeting.pdf)). Nothing marked unknown has been filled in from
 current defaults.
 
+"branch1" below means the archived branch, kept as tag `archive/branch1` (archived 2026-10-22).
+
 The lab-meeting notes number the stages differently: Task 1 = E1, Task 2 = E2, Task 3 = E3+E4.
 
 | ID | Name | Question | Status | Config | Code | Output / W&B | Report |

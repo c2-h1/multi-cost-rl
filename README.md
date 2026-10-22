@@ -113,5 +113,10 @@ python scripts/summarize_runs.py --root runs/<group>  # completed vs incomplete
 ```
 `run_pilot.py` and `run_paper_repro.py` skip runs that already have `summary.json`. They
 refuse to touch an incomplete run directory: inspect it, move it aside, and rerun the same
-command. Memory-guarded launching (`memguard.py`, `pipeline.py`) and the analysis/video
-scripts (`analyze_pilot.py`, `render_policies.py`) exist only on branch `branch1`.
+command.
+
+**Archived code.** The Vast.ai pipeline that produced E3/E4 (`pipeline.py`, `memguard.py`,
+`analyze_pilot.py`, `render_policies.py`, `run_followups.sh`) lives on the archived branch
+`branch1`, kept as tag `archive/branch1`: `git show archive/branch1:analyze_pilot.py`.
+It is not developed further; its evaluation chunk was 10 envs (use `--eval-num-envs 10` to
+compare with E4).

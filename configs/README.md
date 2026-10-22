@@ -8,7 +8,7 @@ One JSON file per experiment in `docs/experiments/INDEX.md`. A run is defined by
   uses them as defaults; flags on the command line override.
 - `extends`: a base file whose `train_args` are merged underneath (`safety/base.json`).
 - `code`: the branch/commit that produced the results. A historical config may use
-  arguments that only exist on that commit (e.g. `eval_chunk` on branch1); `train.py`
+  arguments that only exist on that commit (e.g. `eval_chunk` on the archived branch1, tag `archive/branch1`); `train.py`
   refuses unknown arguments instead of silently ignoring them.
 - `unknown`: settings that could not be verified from saved metadata. Never fill these
   in from current defaults.

@@ -147,9 +147,10 @@ Open work:
 - **E8 pi0 weights** (professor's suggestion): implemented on `pi0-weights`, π_0 calibrated.
   Decide on calibration noise (80–93% zero-cost episodes) and the dual lr in π_0 units first.
 - **E9 hierarchical / priority-based constraints:** semester (CSED499II) topic.
-- **Branches:** `branch1` (memguard, pipeline, analysis, video) and `main`/`pi0-weights`
-  (titanxp launchers, pi0 weights, metadata) have diverged since `fbda5c8`. They differ in
-  the evaluation chunk size (10 vs 2), and so in evaluation layouts. Reconcile them deliberately.
+- **Branches:** `branch1` (Vast.ai pipeline, memguard, analysis, video) was **archived on
+  2026-10-22** as tag `archive/branch1` and is not developed further. Work continues from
+  `main`/`pi0-weights`. branch1 evaluated in chunks of 10 envs (main: 2), so comparisons with
+  E4 need `--eval-num-envs 10`.
 
 The checklist below is the original plan, with completion marked.
 

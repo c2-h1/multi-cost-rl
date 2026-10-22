@@ -7,9 +7,8 @@ Multi-cost safe RL research repo (one undergraduate researcher). Keep it simple.
   (`configs/`). Read PLAN.md for open decisions.
 - Check `git status`, the current branch, and running jobs (`pgrep -af train.py`,
   `tmux ls`). Never modify, move, or delete files that an active run uses.
-- Note which branch you are on. `branch1` (Vast.ai pipeline, memguard, analysis scripts)
-  and `main`/`pi0-weights` (titanxp launchers, pi0 weights) have diverged. Do not merge
-  them unless the user asks.
+- `branch1` is **archived** (tag `archive/branch1`): read it for history (it produced
+  E3/E4), never develop on it or merge it. Current work builds on `main`/`pi0-weights`.
 
 ## Code
 - One trainer: `train.py` (multi-cost PPO-Lagrangian). The paper baseline `baseline_ppo.py`
@@ -21,7 +20,7 @@ Multi-cost safe RL research repo (one undergraduate researcher). Keep it simple.
   evaluation seeds/chunk sizes. New behavior goes behind a flag whose default keeps old
   runs reproducible. Check bit-identity against the previous commit on a short toy run.
 - Evaluation layouts depend on the env seed **and** the chunk size (`--eval-num-envs`;
-  branch1 used 10, main's run_pilot uses 2). Keep it fixed within an experiment.
+  archived branch1 used 10, main's run_pilot uses 2). Keep it fixed within an experiment.
 
 ## Experiments
 - A new experiment gets an ID in `docs/experiments/INDEX.md` and a config in `configs/`
