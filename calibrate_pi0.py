@@ -3,13 +3,15 @@
 pi_0 is built exactly as train.py builds its policy for the same --seed:
 same global seeding, training env constructed first, then ActorCritic. It is
 rolled out stochastically on the fixed calibration layouts used for the
-previous budgets (evaluate.py --episodes 30 --environment-seed 500000 with
-eval-num-envs 2; layouts depend on that chunk size, so keep it at 2).
+previous budgets d=(31.9, 73.9): evaluate.py --episodes 30 --environment-seed
+500000 as run by branch1's pipeline.py, whose evaluation chunk was 10 envs.
+Layout seeds depend on the chunk size, so keep --eval-num-envs 10 for those
+layouts (train.py on this branch evaluates in chunks of --eval-num-envs=2).
 
 By default action sampling continues from the torch RNG state right after
 model construction, as train.py's update-0 evaluation does. With
---environment-seed 10000+seed and --episodes = train.py --eval-episodes, the
-result therefore matches summary.json["initial"] of that training run.
+--environment-seed 10000+seed, --eval-num-envs 2 and --episodes equal to
+train.py --eval-episodes, the result matches summary.json["initial"].
 
     python calibrate_pi0.py --seed 0
     -> runs/calibration/pi0_SafetyPointGoal2-v0_0.json
@@ -34,7 +36,8 @@ def main():
     p.add_argument("--num-envs", type=int, default=4, help="train.py --num-envs (training env built before the actor)")
     p.add_argument("--episodes", type=int, default=30)
     p.add_argument("--environment-seed", type=int, default=500000)
-    p.add_argument("--eval-num-envs", type=int, default=2)
+    p.add_argument("--eval-num-envs", type=int, default=10,
+                   help="evaluation chunk size; 10 reproduces the budget-calibration layouts")
     p.add_argument("--action-seed", type=int, default=None,
                    help="reseed torch before the rollout; default continues the RNG as train.py does")
     p.add_argument("--threads", type=int, default=2)
