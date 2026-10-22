@@ -11,5 +11,5 @@
     "note": "eval_num_envs 10 keeps checkpoint/final/held-out layouts identical to sg-pilot-v1 (branch1 chunk 10)",
     "heldout": "evaluate.py --episodes 50 --environment-seed 900000 --action-seed 900001"
   },
-  "open_questions": ["pi_0 cost estimates are noisy (83-93% zero-cost episodes); dual_lr 0.02 acts ~5-10x faster in pi0 units"]
+  "open_questions": ["pi_0 cost estimates are noisy (80-93% zero-cost episodes); dual_lr 0.02 acts ~5-10x faster in pi0 units"]
 }

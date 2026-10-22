@@ -1,6 +1,8 @@
 # Plan: one aggregate safety budget vs. two separate budgets
 
-Status and next action are in [§6 Status](#6-status-and-handoff). A new session should read this file, then README.md.
+Status and next action are in [§6 Status](#6-status-and-handoff). A new session should read [docs/experiments/INDEX.md](docs/experiments/INDEX.md) (what was run, with evidence), this file (why), then README.md (how).
+
+Sections 1–5 and 7 are the original two-day plan (2026-09-30) and are kept as the record of why things were set up this way.
 
 ## 1. Objective
 
@@ -126,6 +128,31 @@ Plot the learning curves against the paper's figures and table.
 
 ## 6. Status and handoff
 
+### Current status (2026-10-22)
+
+Completed (details and evidence in the experiment index): toy comparison (E1), paper
+reproduction (E2, R3 below), budget calibration (E3, Stage 1: d_hazard = 31.9, d_vase = 73.9),
+the 3-method × 3-seed main experiment with held-out evaluation (E4, Stages 2–3), and the
+2026-09-30 lab meeting (Stage 4). Stages 1–3 ran on a Vast.ai instance from branch `branch1`
+(`pipeline.py`), so their raw outputs are not in this checkout.
+
+Main finding of E4: aggregate_loose was over-constrained (return 12.2 vs 19.3) while `multi`
+did not yet meet its budgets, and **the multipliers had not converged by 2M steps**.
+
+Open work:
+- **E5 follow-ups** (branch1 `run_followups.sh`): `multi` with dual lr 0.04, and
+  `aggregate_conservative` (sum ≤ 1) as the strict shared control. Status unknown here.
+- **E6 hyperparameter search** (successive halving, multi / aggregate / aggregate_loose):
+  no code or results found in any branch here. Bring them in before drawing conclusions.
+- **E8 pi0 weights** (professor's suggestion): implemented on `pi0-weights`, π_0 calibrated.
+  Decide on calibration noise (80–93% zero-cost episodes) and the dual lr in π_0 units first.
+- **E9 hierarchical / priority-based constraints:** semester (CSED499II) topic.
+- **Branches:** `branch1` (memguard, pipeline, analysis, video) and `main`/`pi0-weights`
+  (titanxp launchers, pi0 weights, metadata) have diverged since `fbda5c8`. They differ in
+  the evaluation chunk size (10 vs 2), and so in evaluation layouts. Reconcile them deliberately.
+
+The checklist below is the original plan, with completion marked.
+
 ### Done
 
 - [x] Environment built and versions recorded (§2).
@@ -141,7 +168,7 @@ Plot the learning curves against the paper's figures and table.
 - [x] **R1:** `baseline_ppo.py` written following §5 and smoke tested for 2 epochs. Env stepping now defaults to 2 worker processes and reuses 2 environments; each epoch is still 30 × 1000-step episodes.
 - [x] **R2:** the original throughput test used 30 live environments per run and launched all six runs together. That configuration is invalidated because it can exhaust host RAM.
 - [x] **R2b resource fix:** baseline runs now reuse 2 environments; evaluation retains only episode summaries; launchers detect GPUs and default to one job per GPU (or one CPU job). CUDA compatibility is checked before simulator allocation.
-- [ ] **R3:** rerun PPO and PPO-Lagrangian × seeds 0, 1, 2 with `./run_paper_repro.sh` (local/interactive) or `sbatch slurm_titanxp.sh` (cluster). Outputs default to `runs/paper-repro-safe/` and `runs/paper-repro-titanxp/`, respectively.
+- [x] **R3** (done; results in `reports/paper-repro/`): rerun PPO and PPO-Lagrangian × seeds 0, 1, 2 with `./run_paper_repro.sh` (local/interactive) or `sbatch slurm_titanxp.sh` (cluster). Outputs default to `runs/paper-repro-safe/` and `runs/paper-repro-titanxp/`, respectively.
   - Monitor: `tail -n1 runs/paper-repro-safe/*.log | cut -c1-200`
   - Compare: `python compare_paper.py` writes `paper-comparison.{md,png,json}`. It works mid-run.
   - Paper targets, read off the end of Fig. 7 (approximate; crop saved at `docs/reference/safetygym-fig7-pointgoal2.png`):
@@ -154,7 +181,7 @@ Plot the learning curves against the paper's figures and table.
     The paper's PPO-Lagrangian barely learns the task on PointGoal2; that is the published result, not a bug.
   - Early observation: the policy update usually stops after 1–2 of 80 iterations (KL > 0.012). Our code follows the reference: unnormalized observations into a 256-wide layer make one Adam step already exceed the KL limit. If PPO's final return falls far short of ≈ 22, check this first.
   - If results match, continue with Stage 1. If not, diagnose before the main experiment.
-- [ ] **Stage 1** (~1–3 h): unconstrained development pilot with seed 100, 500k steps:
+- [x] **Stage 1** (done on branch1 via `pipeline.py`; budgets 31.9 / 73.9): unconstrained development pilot with seed 100, 500k steps:
 
   ```bash
   python train.py --env safety --method unconstrained --seed 100 --budget-hazard 1 --budget-vase 1 \
@@ -169,7 +196,7 @@ Plot the learning curves against the paper's figures and table.
   - **Short constrained pilots:** `aggregate_loose` and `multi` with seed 100 and `--updates 50`.
   - **One adjustment allowed:** budgets to 0.75 × mean, **or** multiplier learning rate 0.005 if multipliers oscillate. Not both.
   - **Then freeze.**
-- [ ] **Stage 2:** 3 methods × seeds 0/1/2, 2M steps each, queued one job per detected GPU by default:
+- [x] **Stage 2** (done on branch1, group `sg-pilot-v1`): 3 methods × seeds 0/1/2, 2M steps each, queued one job per detected GPU by default:
 
   ```bash
   nohup python run_pilot.py --group sg-pilot-v1 --budget-hazard <D_H> --budget-vase <D_V> \
@@ -179,7 +206,7 @@ Plot the learning curves against the paper's figures and table.
   - Eval on 10 fixed layouts and save a checkpoint every 100k steps.
   - Nothing changes after seeing results; a bug fix means a new group and a full rerun.
   - Write the semester proposal while it runs.
-- [ ] **Stage 3:** held-out evaluation of the final checkpoint of each run on the same 50 layouts:
+- [x] **Stage 3** (done; summary in `reports/sg-pilot-v1/`): held-out evaluation of the final checkpoint of each run on the same 50 layouts:
 
   ```bash
   for d in runs/sg-pilot-v1/*/; do python evaluate.py $d/checkpoint.pt --episodes 50 \
@@ -190,7 +217,7 @@ Plot the learning curves against the paper's figures and table.
   - **Analysis script still to write:** learning curves with budget lines, a cost-space scatter showing the "both ≤ 1" square and the x + y = 2 line, and multiplier trajectories.
   - Per-seed table: `method | seed | steps | return | goals/ep | C_h/d_h | C_v/d_v | both within?`, plus exceedance rates and cumulative training cost.
   - A 20–40 s video of all three methods on the same layout.
-- [ ] **Stage 4:** meeting package.
+- [x] **Stage 4:** meeting package (lab meeting 2026-09-30).
   - Materials: one-page brief, figures, table, video, and the 2–3 page semester proposal.
   - Meeting outline:
     1. why separate safety concerns deserve separate measurement
@@ -201,8 +228,10 @@ Plot the learning curves against the paper's figures and table.
 
 ### Open decisions
 
-- Main run length: 2M (default) vs. 1M.
-- W&B logging: online vs. offline (default).
+- ~~Main run length: 2M (default) vs. 1M.~~ Decided: 2M (E4).
+- ~~W&B logging: online vs. offline (default).~~ E4 ran with W&B disabled; train.py default is offline.
+- E8: how many π_0 calibration episodes (or pooled seeds), and which dual lr in π_0 units.
+- How to match the shared budget to separate budgets (sum ≤ 2 vs ≤ 1 vs equal area), from the meeting discussion.
 
 ## 7. Interpreting outcomes
 
