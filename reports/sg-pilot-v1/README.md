@@ -35,4 +35,4 @@ figure, not from saved numbers).
 
 ## Follow-ups
 E5a (`multi`, dual lr 0.04) and E5b (`aggregate_conservative`) were queued with
-`run_followups.sh` on branch1; their status is unknown here. E8 (pi0 weights) is planned.
+`run_followups.sh` on branch1; their status is unknown here. E10 reruns aggregate_loose and multi at 5M steps.

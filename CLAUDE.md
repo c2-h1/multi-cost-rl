@@ -8,7 +8,7 @@ Multi-cost safe RL research repo (one undergraduate researcher). Keep it simple.
 - Check `git status`, the current branch, and running jobs (`pgrep -af train.py`,
   `tmux ls`). Never modify, move, or delete files that an active run uses.
 - `branch1` is **archived** (tag `archive/branch1`): read it for history (it produced
-  E3/E4), never develop on it or merge it. Current work builds on `main`/`pi0-weights`.
+  E3/E4), never develop on it or merge it. Current work builds on `main`/`spg-v2`.
 
 ## Code
 - One trainer: `train.py` (multi-cost PPO-Lagrangian). The paper baseline `baseline_ppo.py`

@@ -16,8 +16,7 @@ head per cost, and four constraint modes (`train.py --method`):
 | `aggregate_conservative` | x_1 + x_2 ≤ 1 (implies every x_i ≤ 1) | 1 |
 | `multi` | every x_i ≤ 1 | one per cost |
 
-`--cost-weights pi0` weights costs by the untrained policy's costs instead of 1/d_i
-(experiment E8). Environments: a 2-cost toy (`toy_env.py`), Safety-Gymnasium
+Environments: a 2-cost toy (`toy_env.py`), Safety-Gymnasium
 `SafetyPointGoal2-v0` with hazard and vase costs (`safety_adapter.py`), HumanoidBench H1
 with 3 costs (`humanoid_*.py`). The Safety Gym paper baseline (`baseline_ppo.py`) is a
 separate, deliberately faithful PPO / PPO-Lag implementation.
@@ -27,7 +26,7 @@ separate, deliberately faithful PPO / PPO-Lag implementation.
 ```text
 E1 toy comparison ──> E2 reproduce Safety Gym paper (1 cost) ──> E3 calibrate 2 budgets
    ──> E4 aggregate vs separate on SafetyPointGoal2 ──> E5 follow-ups (faster duals,
-   strict aggregate) / E6 hparam search ──> E8 pi0 weights ──> E9 hierarchical constraints
+   strict aggregate) / E6 hparam search ──> E10 E4 at 5M steps ──> E9 hierarchical constraints
 E7 humanoid pilot (side branch, failed: robot never learned to walk)
 ```
 
@@ -40,7 +39,6 @@ Research plan and history: [PLAN.md](PLAN.md). Agent conventions: [CLAUDE.md](CL
 |---|---|
 | `train.py` | multi-cost trainer (toy / safety / humanoid); writes `config.json` (resolved args, git commit, eval protocol), `metrics.jsonl`, checkpoints, `evaluation.npz`, `summary.json` |
 | `evaluate.py` | re-evaluate a checkpoint on fixed layouts (held-out: `--environment-seed 900000 --action-seed 900001`) |
-| `calibrate_pi0.py` | per-cost episode costs of the untrained policy (E8) |
 | `run_pilot.py` | queue a method × seed matrix with frozen Safety Gym settings; resumable |
 | `baseline_ppo.py`, `run_paper_repro.{py,sh}`, `compare_paper.py` | E2 paper reproduction and comparison plots |
 | `slurm_*.sh` | titanxp cluster jobs (paper repro, calibration, main experiment) |
@@ -89,12 +87,10 @@ python evaluate.py runs/<group>/<method>-s<seed>/checkpoint.pt --episodes 50 \
 
 1. Add a row to `docs/experiments/INDEX.md` (next free ID, question, status `planned`).
 2. Add `configs/<area>/<name>.json` with `"extends": "base.json"` and only what differs.
-3. Launch through the existing tools, e.g. E8:
+3. Launch through the existing tools, e.g. E10 (multi part):
    ```bash
-   for s in 0 1 2; do python calibrate_pi0.py --seed $s; done
-   python run_pilot.py --group sg-pi0-v1 --methods multi aggregate_conservative aggregate_loose \
-     --budget-hazard 31.9 --budget-vase 73.9 --transitions 2000000 --device cpu \
-     --extra "--config configs/safety/pi0-weights.json --eval-num-envs 10 --pi0-calibration runs/calibration/pi0_SafetyPointGoal2-v0_{seed}.json"
+   python run_pilot.py --group sg-pilot-v2-multi --methods multi --budget-hazard 31.9 --budget-vase 73.9 \
+     --transitions 5000000 --device cpu --max-parallel 3 --extra "--dual-lr 0.04"
    ```
 4. When done, write a short `reports/<name>/README.md` and update the index.
 

@@ -1,6 +1,6 @@
 ---
 tags: [research, safe-rl, multi-cost]
-source: "github.com/c2-h1/multi-cost-rl @ pi0-weights (ae0ed14)"
+source: "github.com/c2-h1/multi-cost-rl @ spg-v2"
 related: "[[260930]]"
 updated: 2026-10-23
 ---
@@ -8,15 +8,15 @@ updated: 2026-10-23
 # Multi-cost Safe RL: SafetyPointGoal2-v0 (hazard + vase)
 > [!summary] TL;DR
 > - **질문**: safety cost를 하나로 합치지 않고 종류별(hazard, vase)로 나눠서 각각 제약을 걸면, 같은 safety 수준에서 return이 더 높아질까?
-> - **방법**: PPO + Lagrangian(primal-dual). cost에 weight $w_i$를 곱해 단위를 맞춘 뒤, 하나의 $\lambda$(aggregate)와 cost별 $\lambda_i$(multi)를 비교.
+> - **방법**: PPO + Lagrangian(primal-dual). cost를 budget으로 나눠 단위를 맞춘 뒤 ($x_i = J_{c_i}/d_i$), 하나의 $\lambda$(aggregate)와 cost별 $\lambda_i$(multi)를 비교.
 > - **지금까지 결과**: 2M step 안에 수렴하지 않음. aggregate는 overshoot 때문에 over-constrained, multi는 아직 budget violation.
-> - **이번 세션 (10/22–23)**: $w_i$를 학습 전 policy $\pi_0$ 기준으로 바꾸는 옵션(`--cost-weights pi0`)을 구현하고 $\pi_0$ calibration까지 완료. repo 정리(experiment index, config, CLAUDE.md), branch1 archive. **E8 본 실험은 아직 안 돌림**: 결정할 것 2개가 남음 (§6).
+> - **이번 세션 (10/22–23)**: repo 정리(experiment index, config, CLAUDE.md), branch1 archive. 교수님 제안의 해석 A(고정 weight, 합 ≤ 2)로 **E10 실행 중**: E4를 5M step, 더 큰 dual lr로 다시. 해석 B는 다음 랩미팅에서 상의 (§6).
 
 ---
 
-## 0. 실험 ID (E1–E9)
+## 0. 실험 ID (E1–E10)
 
-이번 세션에서 모든 실험에 번호를 붙였다 (전체 목록: `docs/experiments/INDEX.md`, 설정: `configs/`). 미팅 노트의 Task 번호와의 관계: **Task 1 = E1, Task 2 = E2, Task 3 = E3 + E4**. 이 문서는 Task 3 이후(E3~E8)만 다룬다.
+이번 세션에서 모든 실험에 번호를 붙였다 (전체 목록: `docs/experiments/INDEX.md`, 설정: `configs/`). 미팅 노트의 Task 번호와의 관계: **Task 1 = E1, Task 2 = E2, Task 3 = E3 + E4**. 이 문서는 Task 3 이후(E3~E10)만 다룬다.
 
 | ID | 무엇 | 상태 |
 |---|---|---|
@@ -27,7 +27,7 @@ updated: 2026-10-23
 | E5b | E4 follow-up: aggregate_conservative ($x_h + x_v \le 1$), multi와 feasible set을 맞춘 비교 대상 | 위와 같음 |
 | E6 | Lagrangian hyperparameter search (successive halving) | 코드와 결과를 못 찾음 |
 | E7 | HumanoidBench pilot | 실패 (생략) |
-| **E8** | $\pi_0$ weights (이번 세션에서 구현. 교수님 제안이 아님, §2.2 참고) | calibration만 완료, 본 실험 전 |
+| E8 | (취소된 실험, 번호만 남김) | 취소 |
 | E9 | hierarchical / priority safe RL (CSED499II 주제) | 계획 |
 | **E10** | E4를 5M step으로 다시 (해석 A): aggregate_loose dual lr 0.02, multi 0.04, seed 3개 | **실행 중** (10/23 시작, 약 하루) |
 
@@ -63,43 +63,28 @@ $$
 - $c_{i,t}$: step $t$에서 cost $i$ (0 또는 1의 indicator)
 - $d_i$: cost $i$의 episode당 budget (단위: "violation이 있었던 step 수 / episode")
 
-### 2.2 Cost weight $w_i$ (단위 맞추기)
+### 2.2 정규화 (단위 맞추기)
 
-hazard와 vase는 발생 빈도가 달라서 그대로 더하면 의미가 없다. 그래서 각 cost에 weight $w_i$를 곱한다. 코드에서는 **critic이 학습하는 cost 신호 자체를** $w_i c_{i,t}$로 바꿔서, advantage도 처음부터 weight 단위가 된다 (`train.py`: `cost / cost_scale`, $w_i = 1/\text{cost\_scale}_i$).
+hazard와 vase는 발생 빈도가 달라서 그대로 더하면 의미가 없다. 그래서 budget으로 나눈다 (weight $w_i = 1/d_i$).
 
-두 가지 선택이 있다 (`--cost-weights`):
+$$
+x_i(\pi) = \frac{J_{c_i}(\pi)}{d_i}
+\qquad (x_i = 1 \iff \text{budget에 정확히 맞음})
+$$
 
-| 모드 | $w_i$ | 의미 |
-|---|---|---|
-| `budget` (기본값, 지금까지의 모든 실험) | $1/d_i$ | $x_i = J_{c_i}/d_i$. $x_i = 1$이면 budget에 딱 맞음 |
-| `pi0` (이번 세션, E8) | $1/\max(C_i^0, \text{floor})$ | $C_i^0 = J_{c_i}(\pi_0)$: **학습 전** policy의 평균 episode cost. floor 기본 1.0 |
-
-- `budget` 모드는 예전 코드와 **bit-identical** (test로 확인).
-- **evaluation은 모드와 무관**: 항상 각 cost를 자기 $d_i$와 비교 ($x_i = J_{c_i}/d_i$).
-- 선택 옵션 `--budget-from-pi0 ALPHA`: $d_i = \alpha\, C_i^0$로 budget 자체를 $\pi_0$에서 정함.
-
-> [!question] $\pi_0$가 뭔가?
-> **학습을 한 번도 하지 않은, 초기화 직후의 policy**다 (update 0). `train.py --seed s`가 처음 만드는 network 그대로:
-> - actor의 마지막 layer가 gain 0.01로 초기화돼서 action 평균 ≈ 0, std = $e^{-0.7}$ ≈ 0.5인 Gaussian → **사실상 제자리에서 랜덤하게 떠는 policy**.
-> - 그래서 robot은 시작 위치 근처에만 있고, cost는 시작 위치가 우연히 hazard/vase 근처였던 episode에서만 생긴다 (§3.2에서 80~93% episode가 cost 0인 이유).
-> - $C_i^0$ = 이 policy를 고정된 30개 layout에서 돌렸을 때 cost $i$의 평균 episode cost. `calibrate_pi0.py`가 측정한다. seed마다 초기 network가 다르므로 $\pi_0$도, $C_i^0$도 seed마다 다르다.
-> - 학습을 하지 않으므로 계산이 싸다 (rollout만 30 episode).
-
-> [!warning] $\pi_0$ weighting의 출처 (10/23 정정)
-> 세션 첫 작업 지시문에 "교수님 제안"이라고 적혀 있어서 구현했지만, 교수님이 실제로 하신 말은 **"hazard와 vase의 violation에 따라 weighting해서 cost 합이 2가 되도록 aggregation"**이다. 500K step으로 budget을 정하는 방식이 문제라는 말은 없었다. 따라서 $\pi_0$ weighting은 근거가 약한 대안이다 (`--cost-weights` 기본값은 `budget`이라 기존 실험에는 영향 없음). 교수님 제안의 해석은 §6 참고.
+- $d_i$는 E3에서 unconstrained agent를 500K step 학습시킨 뒤 측정한 평균 cost의 절반 (§3).
+- 코드에서는 **critic이 학습하는 cost 신호 자체를** $c_{i,t}/d_i$로 바꿔서, advantage도 처음부터 budget 단위가 된다 (`train.py`의 `cost / env.budgets`).
 
 ### 2.3 비교하는 방법 4가지 (`train.py --method`)
-
-일반형 ($w_i$ 단위). `budget` 모드에서는 $w_i d_i = 1$이라 괄호 안 값이 된다.
 
 | 코드 이름 | 제약 | $\lambda$ 개수 | 슬라이드 이름 |
 |---|---|---|---|
 | `unconstrained` | 없음 ($\lambda = 0$) | 0 | Unconstrained |
-| `aggregate_loose` | $\sum_i w_i J_{c_i} \le \sum_i w_i d_i$ &nbsp; ($x_h + x_v \le 2$) | 1 | Aggregate (sum ≤ 2) |
-| `aggregate_conservative` | $\sum_i w_i J_{c_i} \le \min_i w_i d_i$ &nbsp; ($x_h + x_v \le 1$) | 1 | (아직 실험 안 함) |
-| `multi` | $w_i J_{c_i} \le w_i d_i \;\forall i$ &nbsp; ($x_h \le 1,\; x_v \le 1$) | 2 | Separate |
+| `aggregate_loose` | $x_h + x_v \le 2$ | 1 | Aggregate (sum ≤ 2) |
+| `aggregate_conservative` | $x_h + x_v \le 1$ | 1 | (아직 실험 안 함) |
+| `multi` | $x_h \le 1,\; x_v \le 1$ | 2 | Separate |
 
-**Feasible set 포함 관계** (budget 모드):
+**Feasible set 포함 관계**:
 
 $$
 \underbrace{\{x_h + x_v \le 1\}}_{\text{conservative}}
@@ -113,11 +98,7 @@ $$
 > - loose의 삼각형은 multi의 정사각형을 포함하므로 **loose가 더 느슨한 제약**이다. 예: $(x_h, x_v) = (0.7, 1.1)$은 loose는 통과, multi는 violation.
 > - "같은 safety"에서 비교하려면 feasible set을 맞춰야 한다. loose와 multi의 return을 그대로 비교하면 공정하지 않다.
 > - **일반화**: 제약을 합치면 feasible set은 항상 넓어지거나 같다. $\forall i,\, x_i \le 1 \Rightarrow \sum_i x_i \le m$ 이지만 역은 성립하지 않는다.
-> - conservative의 $\min_i w_i d_i$는 "모든 $J_{c_i} \le d_i$를 보장하는 가장 큰 shared bound"다: $w_j J_{c_j} \le \sum_i w_i J_{c_i} \le \min_i w_i d_i \le w_j d_j$.
-
-> [!important] $w_i$를 바꾸면 무엇이 바뀌나
-> - **multi**: $w_i J_{c_i} \le w_i d_i \iff J_{c_i} \le d_i$. **feasible set은 그대로**이고 학습 dynamics(advantage에서 penalty 크기, $\lambda$ 속도)만 바뀐다.
-> - **aggregate**: 합에서 hazard와 vase의 상대 비중이 $d_v/d_h$에서 $C_v^0/C_h^0$로 바뀐다. 즉 **feasible set 자체가 바뀐다** (삼각형의 기울기가 달라짐).
+> - conservative의 합 ≤ 1은 "모든 $x_i \le 1$을 보장하는 가장 큰 shared bound"다: $x_j \le \sum_i x_i \le 1$.
 
 ### 2.4 Lagrangian과 primal-dual
 
@@ -125,12 +106,12 @@ $$
 
 **multi**:
 $$
-\mathcal{L}(\pi, \boldsymbol\lambda) = J_r(\pi) - \sum_i \lambda_i \big(w_i J_{c_i}(\pi) - w_i d_i\big)
+\mathcal{L}(\pi, \boldsymbol\lambda) = J_r(\pi) - \sum_i \lambda_i \big(x_i(\pi) - 1\big)
 $$
 
 **aggregate (loose / conservative)**:
 $$
-\mathcal{L}(\pi, \lambda) = J_r(\pi) - \lambda \Big(\sum_i w_i J_{c_i}(\pi) - k\Big), \qquad k = \textstyle\sum_i w_i d_i \text{ (loose)},\; \min_i w_i d_i \text{ (conservative)}
+\mathcal{L}(\pi, \lambda) = J_r(\pi) - \lambda \Big(\sum_i x_i(\pi) - k\Big), \qquad k = 2 \text{ (loose)},\; 1 \text{ (conservative)}
 $$
 
 $$
@@ -143,7 +124,7 @@ $$
 
 ### 2.5 Primal step: PPO
 
-**(a) GAE.** reward와 각 weighted cost 신호 $s \in \{r, w_h c_h, w_v c_v\}$마다 따로 계산 ($\gamma = 1$, $\lambda_{\text{GAE}} = 0.95$, 마지막 $V = 0$):
+**(a) GAE.** reward와 각 정규화 cost 신호 $s \in \{r, c_h/d_h, c_v/d_v\}$마다 따로 계산 ($\gamma = 1$, $\lambda_{\text{GAE}} = 0.95$, 마지막 $V = 0$):
 
 $$
 \delta_t^{s} = s_t + V^{s}(o_{t+1}) - V^{s}(o_t), \qquad
@@ -172,15 +153,13 @@ total loss = $L^{\text{CLIP}} + 1.0 \cdot \tfrac12 \lVert V - \text{target} \rVe
 
 ### 2.6 Dual step: projected gradient ascent (`update_multipliers`)
 
-PPO 업데이트가 끝난 뒤, 이번 batch(4 episodes)의 평균 weighted cost $\hat y_i = w_i \hat J_{c_i}$로:
+PPO 업데이트가 끝난 뒤, 이번 batch(4 episodes)의 평균 정규화 cost $\hat x_i$로:
 
 $$
-\text{multi:}\quad \lambda_i \leftarrow \max\big(0,\; \lambda_i + \eta\,(\hat y_i - w_i d_i)\big)
+\text{multi:}\quad \lambda_i \leftarrow \max\big(0,\; \lambda_i + \eta\,(\hat x_i - 1)\big)
 \qquad
-\text{aggregate:}\quad \lambda \leftarrow \max\Big(0,\; \lambda + \eta\,\big(\textstyle\sum_i \hat y_i - k\big)\Big)
+\text{aggregate:}\quad \lambda \leftarrow \max\Big(0,\; \lambda + \eta\,\big(\textstyle\sum_i \hat x_i - k\big)\Big)
 $$
-
-budget 모드에서는 $\hat y_i = \hat x_i$, $w_i d_i = 1$이라 예전 식 $\lambda_i + \eta(\hat x_i - 1)$과 같다.
 
 $\eta$ = `dual_lr`, $\lambda_0 = 0.1$. **어떤 dual lr이 어디서 쓰였는지** (이번 세션에서 정리; `train.py` 기본값 0.15는 SafetyPointGoal2에서는 안 씀):
 
@@ -189,18 +168,13 @@ $\eta$ = `dual_lr`, $\lambda_0 = 0.1$. **어떤 dual lr이 어디서 쓰였는�
 | SafetyPointGoal2 calibration, 본 실험 (E3/E4) | **0.02** | `run_pilot.py` FROZEN, slurm 스크립트, 미팅 노트 |
 | follow-up E5a | 0.04 | branch1의 `run_followups.sh` |
 | hparam search (E6) | unknown | 코드도 결과도 이 repo에 없음 |
+| E10 | aggregate_loose 0.02, multi **0.04** | `configs/safety/sg-pilot-v2.json` |
 
 > [!tip] 직관: $\lambda$는 violation의 누적합이다 (integral controller)
 > $$\lambda_K = \lambda_0 + \eta \sum_{k=1}^{K} (\hat x_k - 1) \quad (\text{0 아래로 안 내려가는 것만 빼면})$$
 > - violation이 계속되는 동안 $\lambda$는 **직선으로** 계속 오른다.
 > - violation이 해소된 순간 $\lambda$는 이미 크다. 그래서 cost가 budget보다 한참 아래로 내려가고(**over-constrained**), $\lambda$가 다시 줄어드는 데 오래 걸린다 (**overshoot**).
 > - $\lambda$의 반응 속도는 $\eta \times$(update 횟수)$\times$(violation의 크기)로 정해진다.
-
-> [!warning] $\pi_0$ 모드에서 dual lr의 의미가 바뀐다
-> $k_i = w_i d_i = d_i / C_i^0$로 두면 ($\pi_0$ calibration에서 **0.8 ~ 6.2**, budget 모드에서는 1):
-> - dual step: $\hat y_i - w_i d_i = k_i(\hat x_i - 1)$ → $\lambda_i$가 violation 1당 $k_i$배 빨리 오름.
-> - advantage: cost 신호가 $w_i c_i = k_i (c_i/d_i)$라서 $\lambda_i \hat A^{w_i c_i} = (k_i\lambda_i)\,\hat A^{c_i/d_i}$ → 같은 $\lambda_i$가 $k_i$배 큰 penalty.
-> - 그래서 policy가 실제로 느끼는 penalty $\lambda_i^{\text{eff}} = k_i \lambda_i$는 $\lambda_i^{\text{eff}} \leftarrow \lambda_i^{\text{eff}} + \eta\,k_i^2(\hat x_i - 1)$로 움직인다. **속도는 $k_i^2$배** (0.6 ~ 38배), 시작값도 $k_i \lambda_0$. → §6 결정 2.
 
 ---
 
@@ -222,7 +196,7 @@ $d_i = \max(1, \text{round}(0.5 \times \bar C_i, 1))$ → $d_h = 31.9$, $d_v = 7
 **본 실험 설정 (E4, `run_pilot.py` FROZEN)**: 4 env × 1000 step × 500 update = 2M step, dual lr 0.02, $\lambda_0 = 0.1$, 25 update마다 eval 10 episodes, 끝나면 final eval 50 episodes, held-out 평가는 `evaluate.py --environment-seed 900000 --action-seed 900001` (50 layouts).
 
 > [!warning] Evaluation layout은 env seed **와** chunk 크기로 정해진다
-> `collect_chunked`가 chunk마다 `make_env(seed + start, size)`를 부르기 때문. branch1(E3/E4)은 chunk 10, main의 `run_pilot.py`는 `--eval-num-envs 2`. **E4와 비교하려면 `--eval-num-envs 10`** (E8 config에 이미 들어 있음). 한 실험 안에서는 절대 바꾸지 말 것.
+> `collect_chunked`가 chunk마다 `make_env(seed + start, size)`를 부르기 때문. branch1(E3/E4)은 chunk 10, main의 `run_pilot.py`는 `--eval-num-envs 2`. **E4와 비교하려면 `--eval-num-envs 10`** (E10은 학습 중 eval은 2, held-out 평가만 10). 한 실험 안에서는 절대 바꾸지 말 것.
 
 ### 3.1 E4 결과 (held-out 평가, 미팅 노트 260930)
 
@@ -245,48 +219,29 @@ $d_i = \max(1, \text{round}(0.5 \times \bar C_i, 1))$ → $d_h = 31.9$, $d_v = 7
 > [!warning] 해석 시 주의
 > loose(삼각형)와 multi(정사각형)는 feasible set이 달라서, 이 표만으로 "어느 쪽이 return이 높다"고 결론 내리면 안 된다. 두 방법 모두 수렴하지 않았다. 결과를 쓸 때는 항상 **native constraint 만족 여부**와 **per-cost "둘 다 ≤ 1"**을 따로 보고할 것.
 
-### 3.2 $\pi_0$ calibration 결과 (이번 세션, E8 준비)
-
-`calibrate_pi0.py`, E3와 같은 30개 layout (env seed 500000, chunk 10). 파일: `runs/calibration/pi0_SafetyPointGoal2-v0_<seed>.json`.
-
-| seed | $C_h^0$ | zero-cost episode | $C_v^0$ | zero-cost episode | $w_h d_h$ | $w_v d_v$ |
-|---|---:|---:|---:|---:|---:|---:|
-| 0 | 20.5 ± 82.8 | 90% | 13.2 ± 36.6 | 87% | 1.56 | 5.60 |
-| 1 | 11.3 ± 49.0 | 93% | 13.6 ± 38.9 | 80% | 2.82 | 5.43 |
-| 2 | 40.0 ± 113.8 | 87% | 19.0 ± 49.7 | 80% | 0.80 | 3.89 |
-| 100 | 6.3 ± 29.8 | 93% | 11.9 ± 33.6 | 83% | 5.06 | 6.21 |
-
-(mean ± std over 30 episodes)
-
-- 둘 다 0 근처는 아님 → floor 1.0은 실제로 걸리지 않음.
-- **문제**: random Point robot은 거의 안 움직여서 30 episode 중 2~6개만 cost가 0이 아니다. 그래서 평균이 매우 noisy하다 ($C_h^0$가 seed에 따라 6.3 ~ 40.0).
-- seed 2는 $\pi_0$가 이미 hazard budget을 넘음 ($40.0 > 31.9$). 나머지 seed는 budget이 $\pi_0$보다 느슨함.
-- `runs/calibration/chunk2/`는 처음에 실수로 잘못된 layout(chunk 2)으로 돌린 결과. 비교용으로만 남겨둠.
-
 ---
 
-## 4. 코드 구조 (`pi0-weights` branch 기준)
+## 4. 코드 구조 (`spg-v2` branch 기준)
 
 ### 4.1 SafetyPointGoal2-v0 실험에 쓰는 파일
 
 | 파일 | 역할 |
 |---|---|
-| `train.py` | **유일한 학습 코드.** PPO + scalar/vector Lagrangian. 주요 함수: `collect`(rollout, 신호 = `[r, cost/cost_scale]`), `generalized_advantage`, `combine_advantages`, `update_multipliers`(dual step), `collect_chunked`(고정 layout eval), `train`. 출력: `config.json`, `metrics.jsonl`, checkpoint, `evaluation.npz`, `summary.json` |
+| `train.py` | **유일한 학습 코드.** PPO + scalar/vector Lagrangian. 주요 함수: `collect`(rollout, 신호 = `[r, cost/d]`), `generalized_advantage`, `combine_advantages`, `update_multipliers`(dual step), `collect_chunked`(고정 layout eval), `train`. 출력: `config.json`, `metrics.jsonl`, checkpoint, `evaluation.npz`, `summary.json` |
 | `safety_adapter.py` | Safety-Gymnasium을 감싸서 hazard, vase cost를 **따로** 꺼냄 |
-| `calibrate_pi0.py` | **(신규)** 학습 전 policy $\pi_0$의 cost별 평균 episode cost 측정. `train.py`와 같은 seeding 순서로 network를 만들어서, `train.py --seed s`의 $\pi_0$와 정확히 같은 policy |
 | `run_pilot.py` | method × seed matrix launcher. Safety Gym 설정은 FROZEN, 이미 끝난 run은 건너뜀(resume 가능). **(신규)** `--extra "..."`로 train.py flag 추가 (`{seed}` 치환) |
-| `evaluate.py` | 저장된 checkpoint를 처음 보는 layout(held-out)에서 평가 |
+| `evaluate.py` | 저장된 checkpoint를 처음 보는 layout(held-out)에서 평가. **(신규)** `--eval-num-envs`로 평가 chunk 지정 |
 | `scripts/summarize_runs.py` | **(신규)** `runs/` 아래 결과로 표 재생성 (학습 안 함). status, return, $x_i$, native feasible vs 둘 다 ≤ 1, 마지막 $\lambda$, 마지막 1/4 동안의 $\lambda$ 변화(수렴 판단용) |
 | `slurm_safety_calibrate_titanxp.sh`, `slurm_safety_multicost_titanxp.sh` | titanxp cluster에서 budget calibration / 본 실험 |
 | `validate_safety.py` | cost 신호가 제대로 나오는지 검증 (영상 포함) |
-| `test_core.py` | unit test 15개. 이번 세션에 추가: budget 모드가 예전 dual update와 bit-identical, weighted violation = $\sum w_i(C_i - d_i)$, cost_scale이 신호에 반영됨, native feasibility ≠ per-cost, config `extends`/CLI override, repo의 config 전부 load 가능 |
+| `test_core.py` | unit test 12개. 이번 세션에 추가: native feasibility ≠ per-cost, config `extends`/CLI override, repo의 config 전부 load 가능 |
 
 ### 4.2 실험 기록 체계 (이번 세션에 만듦)
 
 | 위치 | 내용 |
 |---|---|
-| `docs/experiments/INDEX.md` | **실험 목록 E1–E9**: 질문, 상태, config, 어느 코드(commit/branch)로 돌렸는지, 결과 위치, 근거(code / report / notes). 모르는 것은 unknown으로 둠 |
-| `configs/safety/*.json` | 실험마다 JSON 하나. `base.json`(FROZEN 설정) + `extends`로 차이만. 확인 못 한 값은 `unknown`. SafetyPointGoal2 관련: `sg-calibration`(E3), `sg-pilot-v1`(E4), `sg-pilot-v1-duallr004`(E5a), `sg-pilot-v1-conservative`(E5b), `pi0-weights`(E8) |
+| `docs/experiments/INDEX.md` | **실험 목록 E1–E10**: 질문, 상태, config, 어느 코드(commit/branch)로 돌렸는지, 결과 위치, 근거(code / report / notes). 모르는 것은 unknown으로 둠 |
+| `configs/safety/*.json` | 실험마다 JSON 하나. `base.json`(FROZEN 설정) + `extends`로 차이만. 확인 못 한 값은 `unknown`. SafetyPointGoal2 관련: `sg-calibration`(E3), `sg-pilot-v1`(E4), `sg-pilot-v1-duallr004`(E5a), `sg-pilot-v1-conservative`(E5b), `sg-pilot-v2`(E10) |
 | `train.py --config X.json --experiment-id ...` | config의 `train_args`가 기본값이 되고 CLI flag가 덮어씀. 모르는 key가 있으면 에러 |
 | run의 `config.json` | 이제 git commit/branch/dirty, 사용한 experiment config, evaluation protocol(eval seed, chunk)까지 저장 |
 | `reports/sg-pilot-v1/` | 미팅 노트에서 옮긴 E4 결과 요약 |
@@ -297,10 +252,9 @@ $d_i = \max(1, \text{round}(0.5 \times \bar C_i, 1))$ → $d_h = 31.9$, $d_v = 7
 ### 4.3 한 update에서 일어나는 일 (`train.py`)
 
 ```text
-cost_scale = d (budget 모드)  또는  max(C0, floor) (pi0 모드)      # w = 1 / cost_scale
-for update in 1..500:
+for update in 1..1250:      # E10: 5M step (E4는 500 = 2M)
     # 1) rollout: 4개 env에서 1000 step씩 (= episode 4개)
-    signals_t = [r_t, c_hazard_t / cost_scale_h, c_vase_t / cost_scale_v]
+    signals_t = [r_t, c_hazard_t / d_h, c_vase_t / d_v]
 
     # 2) GAE: 신호 3개 각각 advantage 계산
     A_r, A_h, A_v = GAE(signals, critic values)
@@ -311,17 +265,16 @@ for update in 1..500:
     A = (A - mean) / std
 
     # 4) PPO: 6 epoch, minibatch 512, KL > 0.03이면 중단
-    # 5) dual update: λ += η * (weighted cost - weighted budget), 0 아래로 clip
+    # 5) dual update: λ += η * (batch 평균 x - target), 0 아래로 clip
     # 6) 25 update마다 eval 10 episodes (seed 10000+seed), checkpoint 저장
 # 끝나면 final eval 50 episodes (seed 200000+seed), evaluation은 항상 C_i vs d_i
 ```
 
-### 4.4 이번 세션 commit (`pi0-weights`, d5b7932..ae0ed14, 12개, GitHub에 push됨)
+### 4.4 이번 세션 commit (branch `spg-v2`, 이전 이름 `pi0-weights`, GitHub에 push됨)
 
-- **pi0 weighting**: `calibrate_pi0.py`, `train.py --cost-weights pi0`, test (d5b7932–f0c381e)
-- **실험 기록**: `--config`, git 정보 기록, `summarize_runs.py`, `run_pilot.py --extra`, INDEX/configs/README/PLAN/CLAUDE.md, 보고서와 미팅 노트 (08a5f95–896a117)
-- **정리**: 잘못 생긴 파일 삭제, `.gitignore`, branch1 archive (945336a, 094cda2, ae0ed14)
-- 3-update smoke test: multi / aggregate_loose / aggregate_conservative 모두 pi0 모드에서 loss가 유한하고 $\lambda$가 움직임. $\lambda$ 업데이트 한 번을 손으로 계산해서 확인.
+- **실험 기록**: `--config`, git 정보 기록, `summarize_runs.py`, `run_pilot.py --extra`, `evaluate.py --eval-num-envs`, INDEX/configs/README/PLAN/CLAUDE.md, 보고서와 미팅 노트, E10 등록
+- **정리**: 잘못 생긴 파일 삭제, `.gitignore`, branch1 archive
+- **π_0 weighting**: 세션 초반에 구현했다가 교수님 제안이 아니어서 10/23 제거 (코드는 tag `archive/pi0-weights`에 보관). 제거 후 budget 모드 결과가 이전과 bit-identical인 것을 toy run으로 확인.
 - **branch1 archive**: tag `archive/branch1` (b240033, GitHub에도 push). GitHub의 `branch1`, `claude/fervent-wozniak-pamdhy` branch는 삭제. 옛 코드는 `git show archive/branch1:pipeline.py`로 볼 수 있음.
 
 ---
@@ -336,29 +289,22 @@ for update in 1..500:
      3. `git mv configs/safety/sg-pilot-v2.json configs/safety/spg-v2.json`, 안의 name/commands/output 수정. `docs/experiments/INDEX.md`, 이 문서도 수정 → commit
      4. 각 run의 `config.json`, `manifest.json` 안의 옛 group 이름은 기록이므로 **고치지 않음** (config에 "renamed from sg-pilot-v2-*" 메모만)
 
-1. **E8 결정 2개** (§6) → 결정하면 config `configs/safety/pi0-weights.json` 수정.
-2. **(결정 1에 따라) calibration 다시 돌리기**: 예) `python calibrate_pi0.py --seed s --episodes 300`.
-3. **E8 본 실험 실행** (README의 명령):
-   ```bash
-   python run_pilot.py --group sg-pi0-v1 --methods multi aggregate_conservative aggregate_loose \
-     --budget-hazard 31.9 --budget-vase 73.9 --transitions 2000000 --device cpu \
-     --extra "--config configs/safety/pi0-weights.json --eval-num-envs 10 --pi0-calibration runs/calibration/pi0_SafetyPointGoal2-v0_{seed}.json"
-   ```
-   그다음 held-out 평가(`evaluate.py ... --environment-seed 900000 --action-seed 900001`), `scripts/summarize_runs.py --root runs/sg-pi0-v1`, `reports/sg-pi0-v1/README.md` 작성, INDEX 업데이트.
-4. **E5a / E5b 결과 찾기** (dual lr 0.04, conservative): Vast.ai에서 돌렸고 이 컴퓨터에는 없음. `runs/sg-pilot-v1-duallr004/`, `runs/sg-pilot-v1-conservative/`를 가져와서 `summarize_runs.py`로 정리. E8과 비교할 baseline이 됨 (특히 conservative는 아직 결과가 하나도 없음).
-5. **E6 hparam search 찾기**: successive halving 코드와 결과가 어떤 branch, commit, 파일에도 없음. 있는 곳(다른 컴퓨터?)을 찾아서 `runs/hparam/`에 넣기.
-6. **`pi0-weights`를 `main`에 merge** (GitHub PR). 아직 안 함.
-7. GitHub의 PR #1이 자동으로 닫혔는지 확인 (`gh`가 없어서 여기서는 확인 못 함).
-8. 미팅 노트의 개선 항목 (아직 안 함):
-   - [ ] step 수 2M → 5~10M (지금 $\lambda$가 수렴하지 않음)
+1. **E10 결과 정리**: 끝나면 held-out 결과로 `reports/spg-v2/README.md` 작성, INDEX 업데이트. E4와 같은 표(§3.1) 형식으로 비교.
+2. **랩미팅**: 해석 B 상의 (§6).
+3. **E5a / E5b 결과 찾기** (dual lr 0.04, conservative): Vast.ai에서 돌렸고 이 컴퓨터에는 없음. `runs/sg-pilot-v1-duallr004/`, `runs/sg-pilot-v1-conservative/`를 가져와서 `summarize_runs.py`로 정리. E10과 비교할 수 있음 (특히 conservative는 아직 결과가 하나도 없음).
+4. **E6 hparam search 찾기**: successive halving 코드와 결과가 어떤 branch, commit, 파일에도 없음. 있는 곳(다른 컴퓨터?)을 찾아서 `runs/hparam/`에 넣기.
+5. **`spg-v2`를 `main`에 merge** (GitHub PR). 아직 안 함.
+6. GitHub의 PR #1이 자동으로 닫혔는지 확인 (`gh`가 없어서 여기서는 확인 못 함).
+7. 미팅 노트의 개선 항목:
+   - [x] step 수 2M → 5M (E10, 실행 중)
    - [ ] seed 5개 이상 (tuning seed와 최종 보고 seed는 분리)
-   - [ ] $\alpha$ sweep ($d_i = \alpha C_i^0$, `--budget-from-pi0`)로 **return vs. joint pass rate** 곡선 비교 (feasible set을 맞춘 공정한 비교)
+   - [ ] budget sweep ($d_i$를 여러 배율로)으로 **return vs. joint pass rate** 곡선 비교 (feasible set을 맞춘 공정한 비교)
 
 ---
 
 ## 6. 내가 결정해야 할 것
 
-### 결정 0: 교수님 제안의 해석 → **일단 A로 진행 (10/23)**, B는 다음 랩미팅에서 상의
+### 교수님 제안의 해석 → **일단 A로 진행 (10/23)**, B는 다음 랩미팅에서 상의
 교수님 말: "hazard와 vase의 violation에 따라 weighting해서 cost 합이 2가 되도록 aggregation".
 
 - **해석 A (고정 weight)**: $w_i = 1/d_i$로 $x_h + x_v \le 2$. **지금의 `aggregate_loose`(E4)와 같다.** 할 일은 E4를 수렴할 때까지 돌리는 것 (step 수↑, dual lr↑). → 진행 중.
@@ -393,32 +339,9 @@ $$
 2. B라면, feasible set이 multi와 같은데 "scalar $\lambda$ 하나 + weight 배분"이 multi(cost별 $\lambda_i$)와 무엇이 다른 걸 보려는 건지? (예: 해석 가능성, 파라미터 수, cost가 많아질 때의 확장성?)
 3. "합이 2"는 $\sum w_i = 2$ (weight의 합)인지, $\sum x_i \le 2$ (제약의 오른쪽)인지?
 
-(참고) $\pi_0$ weighting(E8)은 A, B 어느 것도 아니므로 결정 1, 2는 보류.
-
-### 결정 1: $\pi_0$ cost 추정이 noisy한 문제
-30 episode 중 80~93%가 cost 0이라 평균이 2~6개 episode로 정해진다. 선택지:
-- **(a) episode 수를 늘림** (예: 300). seed별로 따로 $w_i$. 비용은 학습 없는 rollout이라 작음.
-- **(b) seed를 합쳐서 $w_i$ 하나로 고정** (예: seed 0/1/2/100 + 추가 episode의 평균). 모든 run이 같은 constraint를 가지므로 seed 간 비교가 깔끔함. 대신 "그 seed의 $\pi_0$"라는 의미는 약해짐.
-- (c) 그대로 진행 (seed마다 weight가 최대 6배 차이 → aggregate의 feasible set이 seed마다 다름. 비추천).
-- 부수적으로: floor 값 (지금 1.0, 실제로는 안 걸림).
-
-### 결정 2: $\pi_0$ 단위에서의 dual lr
-§2.6 warning: 같은 $\eta$라도 policy가 느끼는 penalty $k_i\lambda_i$는 budget 모드보다 $k_i^2$배 빠르게 움직인다 ($k_i = d_i/C_i^0$).
-
-**"budget 모드와 같은 속도"의 뜻**: $\eta_i = \eta / k_i^2$, $\lambda_{0,i} = \lambda_0 / k_i$로 두면 $k_i\lambda_i$가 E4의 $\lambda_i$와 **매 update 똑같이** 움직인다. 예: seed 0 hazard는 $k = 1.56$ → $\eta = 0.02/1.56^2 \approx 0.008$.
-
-> [!important] 이러면 multi에서는 $\pi_0$ weighting이 사라진다
-> multi는 feasible set이 원래 같고(§2.3), 위처럼 맞추면 penalty dynamics까지 같아서 **E4 multi와 사실상 같은 실험**이다 (critic의 value loss 스케일만 다름). 즉 multi에서 $\pi_0$ weight는 "cost별 dual lr과 $\lambda_0$를 바꾸는 것"과 같다. $\pi_0$ weighting이 진짜로 다른 문제를 만드는 건 **aggregate**뿐이다 (λ가 하나라서 cost별로 맞출 수 없고, 합의 비중 자체가 바뀜).
-
-선택지:
-- **(a) $\eta = 0.02$ 그대로**: 단순함. 대신 multi의 결과가 E4와 달라도 그게 weight 때문이 아니라 cost별 λ 속도($k_i^2$배) 때문이다. seed 0 vase는 $5.6^2 \approx 31$배라 overshoot / over-constrained 위험이 큼.
-- **(b) budget 모드와 맞춤**: multi는 $\eta_i = \eta/k_i^2$, $\lambda_{0,i} = \lambda_0/k_i$ (E4 재현이 되므로 multi는 E8에서 빼도 됨). aggregate는 λ가 하나라 정확히 맞출 수 없으니 평균 $\bar k$로 $\eta/\bar k^2$ 정도. **지금 코드는 dual lr이 scalar 하나라 cost별 $\eta_i$는 새 flag가 필요.**
-- (c) 작은 sweep (예: 0.001 / 0.005 / 0.02)을 tuning seed로 돌려서 고르기. E6 hparam search 결과를 찾으면 그걸 참고.
-
 ### 그 외 선택
-- E8에서 budget을 그대로 둘지($d_h = 31.9, d_v = 73.9$), $d_i = \alpha C_i^0$로 바꿀지.
-- step 수 (2M로 E4와 맞출지, 5~10M로 늘릴지): E4가 2M에서 수렴하지 않았으므로 늘리는 게 맞지만, 그러면 E4와 직접 비교하려면 budget 모드도 다시 돌려야 함.
-- 앞으로의 eval chunk: E4와 비교하려면 10 (E8 config는 10).
+- E10 결과를 보고: 5M에서도 수렴하지 않으면 10M으로 늘릴지, dual lr을 더 키울지, PID Lagrangian을 넣을지.
+- 앞으로의 eval chunk: E4와 비교하려면 10.
 
 ---
 
@@ -428,9 +351,8 @@ $$
 |---|---|
 | CMDP | Constrained MDP. reward를 최대화하되 cost 기댓값에 상한이 있는 문제 |
 | budget $d_i$ | episode당 허용되는 cost $i$의 총량 |
-| weight $w_i$ | cost를 더하기 전에 곱하는 단위 맞춤 계수. `budget` 모드 $1/d_i$, `pi0` 모드 $1/C_i^0$ |
+| weight $w_i$ | cost를 더하기 전에 곱하는 계수. 지금은 $1/d_i$ (해석 A). 해석 B는 violation에 따라 바뀜 |
 | $x_i$ | 정규화 cost $= J_{c_i}/d_i$. 1이면 budget에 딱 맞음 (evaluation은 항상 이것) |
-| $\pi_0$, $C_i^0$ | 학습 전(초기화 직후) policy와 그 평균 episode cost |
 | violation | 제약을 넘은 양 ($x_i - 1 > 0$) |
 | over-constrained | cost가 budget보다 한참 낮음 → 필요 이상으로 reward를 포기한 상태 |
 | overshoot | $\lambda$가 violation 해소 시점에 이미 너무 커서 반대쪽으로 지나치는 현상 |

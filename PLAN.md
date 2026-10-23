@@ -144,12 +144,13 @@ Open work:
   `aggregate_conservative` (sum ≤ 1) as the strict shared control. Status unknown here.
 - **E6 hyperparameter search** (successive halving, multi / aggregate / aggregate_loose):
   no code or results found in any branch here. Bring them in before drawing conclusions.
-- **E8 pi0 weights** (not the professor's suggestion; on hold): implemented on `pi0-weights`, π_0 calibrated.
-  Decide on calibration noise (80–93% zero-cost episodes) and the dual lr in π_0 units first.
+- **E10 sg-pilot-v2** (running): E4's aggregate_loose (dual lr 0.02) and multi (0.04) at 5M steps.
+- **Weighted aggregation, interpretation B** (weights that follow the violation): to discuss at the
+  next lab meeting (progress.md §6).
 - **E9 hierarchical / priority-based constraints:** semester (CSED499II) topic.
 - **Branches:** `branch1` (Vast.ai pipeline, memguard, analysis, video) was **archived on
   2026-10-22** as tag `archive/branch1` and is not developed further. Work continues from
-  `main`/`pi0-weights`. branch1 evaluated in chunks of 10 envs (main: 2), so comparisons with
+  `main`/`spg-v2`. branch1 evaluated in chunks of 10 envs (main: 2), so comparisons with
   E4 need `--eval-num-envs 10`.
 
 The checklist below is the original plan, with completion marked.
@@ -231,7 +232,7 @@ The checklist below is the original plan, with completion marked.
 
 - ~~Main run length: 2M (default) vs. 1M.~~ Decided: 2M (E4).
 - ~~W&B logging: online vs. offline (default).~~ E4 ran with W&B disabled; train.py default is offline.
-- E8: how many π_0 calibration episodes (or pooled seeds), and which dual lr in π_0 units.
+- Professor's weighted aggregation: fixed weights 1/d_i (E10) or violation-dependent weights (progress.md §6).
 - How to match the shared budget to separate budgets (sum ≤ 2 vs ≤ 1 vs equal area), from the meeting discussion.
 
 ## 7. Interpreting outcomes
