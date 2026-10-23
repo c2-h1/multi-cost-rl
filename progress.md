@@ -23,7 +23,7 @@ updated: 2026-10-23
 |---|---|---|
 | E1, E2 | Task 1 (toy), Task 2 (논문 재현) | 완료 (이 문서에서는 생략) |
 | **E3** | SafetyPointGoal2 budget calibration: unconstrained agent로 $d_h = 31.9$, $d_v = 73.9$를 정함 | 완료 |
-| **E4** | SafetyPointGoal2 본 실험: unconstrained / aggregate_loose / multi × seed 3개, 2M step (§3.1의 표) | 완료 (수렴 안 함) |
+| **E4** | SafetyPointGoal2 본 실험: unconstrained / aggregate_loose / multi × seed 3개, 2M step (§3.2의 표) | 완료 (수렴 안 함) |
 | E5a | E4 follow-up: dual lr 0.04로 multi가 수렴하는지 | 종결: 수렴하지 않음 (파일 없음) |
 | E5b | E4 follow-up: aggregate_conservative ($x_h + x_v \le 1$), multi와 feasible set을 맞춘 비교 대상 | 종결: 수렴하지 않음 (파일 없음) |
 | E6 | Lagrangian hyperparameter search (successive halving) | 종결: 당분간 hyperparameter는 직접 고름 |
@@ -73,7 +73,7 @@ x_i(\pi) = \frac{J_{c_i}(\pi)}{d_i}
 \qquad (x_i = 1 \iff \text{budget에 정확히 맞음})
 $$
 
-- $d_i$는 E3에서 unconstrained agent를 500K step 학습시킨 뒤 측정한 평균 cost의 절반 (§3).
+- $d_i$는 E3에서 unconstrained agent를 500K step 학습시킨 뒤 측정한 평균 cost의 절반 (§3.1).
 - 코드에서는 **critic이 학습하는 cost 신호 자체를** $c_{i,t}/d_i$로 바꿔서, advantage도 처음부터 budget 단위가 된다 (`train.py`의 `cost / env.budgets`).
 
 ### 2.3 비교하는 방법 4가지 (`train.py --method`)
@@ -194,16 +194,82 @@ $\eta$ = `dual_lr`, $\lambda_0 = 0.1$. **어떤 dual lr이 어디서 쓰였는�
 - 한 step이 두 cost에 동시에 들어갈 수 있음
 - observation: 원래 60차원 + (경과 시간 비율, absorbed flag) = 62차원
 
-**budget (E3)**: unconstrained agent, seed 100, 500K step → 30개 layout(env seed 500000, chunk 10)에서 평균 cost의 절반:
-$d_i = \max(1, \text{round}(0.5 \times \bar C_i, 1))$ → $d_h = 31.9$, $d_v = 73.9$
+**budget (E3)**: $d_h = 31.9$, $d_v = 73.9$. 구한 방법은 §3.1.
 
 **본 실험 설정 (E4, `run_pilot.py` FROZEN)**: 4 env × 1000 step × 500 update = 2M step, dual lr 0.02, $\lambda_0 = 0.1$, 25 update마다 eval 10 episodes, 끝나면 final eval 50 episodes, held-out 평가는 `evaluate.py --environment-seed 900000 --action-seed 900001` (50 layouts).
 
 > [!WARNING]
-> **Evaluation layout은 env seed **와** chunk 크기로 정해진다**
+> **Evaluation layout은 env seed와 chunk 크기로 정해진다**
 > `collect_chunked`가 chunk마다 `make_env(seed + start, size)`를 부르기 때문. branch1(E3/E4)은 chunk 10, main의 `run_pilot.py`는 `--eval-num-envs 2`. **E4와 비교하려면 `--eval-num-envs 10`** (E10은 학습 중 eval은 2, held-out 평가만 10). 한 실험 안에서는 절대 바꾸지 말 것.
 
-### 3.1 E4 결과 (held-out 평가, 미팅 노트 260930)
+### 3.1 Budget calibration (E3): $d_h = 31.9$, $d_v = 73.9$는 어떻게 나왔나
+
+**목표**: "아무 제약 없이 학습한 agent가 내는 cost의 절반"을 budget으로 삼는다. 너무 느슨하면 제약이 inactive($\lambda = 0$)가 되고, 너무 빡빡하면 달성할 수 없으니 그 중간.
+
+branch1의 `pipeline.py` stage 1이 Vast.ai에서 자동으로 실행했다 (2026-10-01). 순서:
+
+**1) Unconstrained 학습** (`runs/dev/unconstrained-s100`)
+
+```bash
+python train.py --env safety --method unconstrained --seed 100 --budget-hazard 1 --budget-vase 1 \
+  --num-envs 4 --updates 125 --dual-lr 0.02 --eval-every 25 --checkpoint-every 25 \
+  --eval-episodes 10 --final-eval-episodes 50 --group dev --output runs/dev/unconstrained-s100
+# + run_pilot.py FROZEN의 나머지 설정 (lr 3e-4, 6 epochs, minibatch 512, clip 0.2, GAE 0.95, target KL 0.03, ...)
+```
+
+- 4 env × 1000 step × 125 update = **500,000 step**.
+- `--method unconstrained`라서 $\lambda$를 쓰지 않는다. budget (1, 1)은 로그의 정규화에만 쓰이고 학습에는 영향이 없다.
+- seed 100은 개발용 seed. 본 실험 seed (0/1/2)와 분리.
+- network, PPO 설정은 E4 본 실험과 같다 (§3 아래 "본 실험 설정").
+
+**2) Calibration 평가**
+
+```bash
+python evaluate.py runs/dev/unconstrained-s100/checkpoint.pt --episodes 30 --environment-seed 500000 \
+  --output runs/dev/unconstrained-s100/calibration.npz
+```
+
+- 마지막 checkpoint (125 update 후)를 **stochastic** policy로 실행 (`--deterministic` 없음).
+- 30 episodes, 각각 1000 step 전부.
+- action seed는 evaluate.py 기본값 $300000 + 100 = 300100$.
+- **layout**: branch1의 evaluate.py는 chunk 10 고정. 그래서 env seed 500000, 500010, 500020으로 simulator 10개씩을 만든다. 각 simulator의 layout seed는 `np.random.default_rng(env_seed).integers(0, 2**31 - 1, 10)`에서 나온다.
+- 학습 (seed 100), 학습 중 eval (10000+seed), held-out (900000)과 겹치지 않는 처음 보는 맵.
+
+**3) Budget 계산** (`pipeline.py`의 `calibrate`)
+
+$$
+C_i^{(k)} = \sum_{t=0}^{999} c_{i,t}^{(k)}, \qquad
+\bar C_i = \frac{1}{30}\sum_{k=1}^{30} C_i^{(k)}, \qquad
+d_i = \max\big(1,\ \mathrm{round}(0.5\ \bar C_i,\ 1)\big)
+$$
+
+- $C_i^{(k)}$: $k$번째 episode에서 cost $i$가 켜진 step 수.
+- $\max(1, \cdot)$: cost가 거의 0일 때 budget이 0이 되는 것 (0으로 나누기)을 막는다.
+- 자동 경고: goals/episode < 1이면 "task를 못 배움". 평균 cost < 2이거나 episode의 80% 이상에서 cost가 0이면 "inactive constraint".
+- 역산하면 $\bar C_h \approx 63.8$ (63.7–63.9), $\bar C_v \approx 147.8$ (147.7–147.9). 원본 `runs/pipeline/status.json`은 Vast.ai에만 있어서 정확한 값은 미확인.
+
+**4) Sanity pilot 후 freeze**
+
+- aggregate_loose와 multi를 seed 100으로 200K step (50 update) 짧게 돌려 확인만 했다.
+- PLAN에는 "한 번의 수동 조정 허용" (budget을 0.75 × mean으로, 또는 dual lr 0.005)이 있었지만, **조정 없이 자동으로 freeze**했다.
+
+**그래서 고정 weight는**
+
+$$
+w_h = \frac{1}{31.9} \approx 0.0313, \qquad w_v = \frac{1}{73.9} \approx 0.0135
+$$
+
+- vase 1 step의 무게는 hazard 1 step의 약 0.43배.
+- 이 값이 E4와 E10 내내 고정 (해석 A). unconstrained agent 기준으로 보면 두 cost 모두 $x_i \approx 2$에서 출발한다는 뜻.
+
+> [!WARNING]
+> **한계**
+> - 500K step의 unconstrained agent는 아직 덜 학습된 상태. E4의 unconstrained (2M step)는 $x_h = 1.76$, $x_v = 1.84$, 즉 $C_h \approx 56$, $C_v \approx 136$. 2M agent 기준으로는 budget이 평균의 약 57% / 54%.
+> - seed 1개, 30 episodes라서 추정 노이즈가 있다 (calibration.npz가 없어서 표준오차는 모름).
+> - 0.5 ("절반")는 관례적인 선택이고 이론적 근거는 없다 (미팅 노트: "적당히 절반으로").
+> - E3의 결과 파일은 이 checkout에 없다. 근거는 branch1 코드 (`pipeline.py`, `evaluate.py`, `safety_adapter.py`), PLAN, 미팅 노트, `configs/safety/sg-calibration.json`.
+
+### 3.2 E4 결과 (held-out 평가, 미팅 노트 260930)
 
 | | return | goals/ep | $x_h$ | $x_v$ | 합 | 둘 다 ≤ 1인 seed |
 |---|---:|---:|---:|---:|---:|---:|
@@ -348,7 +414,7 @@ for update in 1..1250:      # E10: 5M step (E4는 500 = 2M)
      3. `git mv configs/safety/sg-pilot-v2.json configs/safety/spg-v2.json`, 안의 name/commands/output 수정. `docs/experiments/INDEX.md`, 이 문서도 수정 → commit
      4. 각 run의 `config.json`, `manifest.json` 안의 옛 group 이름은 기록이므로 **고치지 않음** (config에 "renamed from sg-pilot-v2-*" 메모만)
 
-1. **E10 결과 정리**: 끝나면 held-out 결과로 `reports/spg-v2/README.md` 작성, INDEX 업데이트. E4와 같은 표(§3.1) 형식으로 비교.
+1. **E10 결과 정리**: 끝나면 held-out 결과로 `reports/spg-v2/README.md` 작성, INDEX 업데이트. E4와 같은 표(§3.2) 형식으로 비교.
 2. **랩미팅**: 해석 B 상의 (§6).
 3. **`spg-v2`를 `main`에 merge** (GitHub PR). 아직 안 함.
 4. GitHub의 PR #1이 자동으로 닫혔는지 확인 (`gh`가 없어서 여기서는 확인 못 함).
