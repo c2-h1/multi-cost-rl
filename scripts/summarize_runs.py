@@ -7,9 +7,9 @@ A run directory is any folder with train.py's config.json. Status: `completed`
 when summary.json exists, otherwise `incomplete` (still running, crashed or
 stopped; check its log). Two safety readings are reported side by side:
 
-- native: the constraint the method was trained on (multi: every w_i C_i <= w_i d_i;
-  aggregate_loose: sum w_i C_i <= sum w_i d_i; aggregate_conservative:
-  sum w_i C_i <= min_i w_i d_i; unconstrained: none), times constraint_target.
+- native: the constraint the method was trained on, with x_i = C_i / d_i (multi: every
+  x_i <= 1; aggregate_loose: sum x_i <= m; aggregate_conservative: sum x_i <= 1;
+  unconstrained: none), times constraint_target.
 - both<=1: every mean cost within its own budget d_i, the common per-cost metric.
 """
 import argparse
@@ -19,16 +19,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def native_feasible(method, costs, budgets, weights, target=1.0):
+def native_feasible(method, costs, budgets, target=1.0):
     """Mean costs C_i against the method's own trained constraint; None if unconstrained."""
-    wc = [w * c for w, c in zip(weights, costs)]
-    wd = [target * w * d for w, d in zip(weights, budgets)]
+    x = [c / d for c, d in zip(costs, budgets)]
     if method == "multi":
-        return all(a <= b for a, b in zip(wc, wd))
+        return all(v <= target for v in x)
     if method == "aggregate_loose":
-        return sum(wc) <= sum(wd)
+        return sum(x) <= target * len(x)
     if method == "aggregate_conservative":
-        return sum(wc) <= min(wd)
+        return sum(x) <= target
     return None
 
 
@@ -48,7 +47,6 @@ def summarize_run(run):
     summary = json.loads((run / "summary.json").read_text()) if (run / "summary.json").exists() else None
     rows = read_jsonl(run / "metrics.jsonl")
     names, budgets = config["cost_names"], config["budgets"]
-    weights = [config["cost_weight_values"][n] for n in names] if config.get("cost_weight_values") else [1 / d for d in budgets]
     git = config.get("git") or {}
     record = {"run": str(run.relative_to(ROOT) if run.is_relative_to(ROOT) else run),
               "experiment": config.get("experiment_id") or config.get("group"),
@@ -56,7 +54,7 @@ def summarize_run(run):
               "status": "completed" if summary else "incomplete",
               "env_steps": rows[-1]["env_steps"] if rows else 0,
               "updates": f"{rows[-1]['update'] if rows else 0}/{config['updates']}",
-              "dual_lr": config.get("dual_lr"), "cost_weights": config.get("cost_weights", "budget"),
+              "dual_lr": config.get("dual_lr"),
               "commit": (git.get("commit") or "unknown")[:7] + ("+dirty" if git.get("dirty") else ""),
               "lambda_final": [round(v, 3) for k, v in sorted(rows[-1].items()) if k.startswith("dual/")] if rows else []}
     lambdas = {k: [r[k] for r in rows if k in r] for k in (rows[-1] if rows else {}) if k.startswith("dual/")}
@@ -67,7 +65,7 @@ def summarize_run(run):
         costs = [summary[f"final/cost_{n}"] for n in names]
         record.update({"return": round(summary["final/return_mean"], 3),
                        **{f"x_{n}": round(summary[f"final/normalized_{n}"], 3) for n in names},
-                       "native_feasible": native_feasible(config["method"], costs, budgets, weights,
+                       "native_feasible": native_feasible(config["method"], costs, budgets,
                                                           config.get("constraint_target", 1.0)),
                        "both<=1": summary["final/all_mean_costs_feasible"],
                        "episode_pass_rate": round(summary["final/joint_episode_budget_pass_rate"], 3),

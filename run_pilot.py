@@ -48,8 +48,7 @@ def main():
     p.add_argument("--wandb-mode", default="offline", choices=["online", "offline", "disabled"])
     p.add_argument("--extra", default="",
                    help='train.py flags appended to every job (they override FROZEN); "{seed}" is replaced, e.g. '
-                        '--extra "--config configs/safety/pi0-weights.json --eval-num-envs 10 '
-                        '--pi0-calibration runs/calibration/pi0_SafetyPointGoal2-v0_{seed}.json"')
+                        '--extra "--dual-lr 0.04 --eval-num-envs 10"')
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args()
 
