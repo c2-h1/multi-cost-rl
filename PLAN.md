@@ -144,7 +144,7 @@ Open work:
   `aggregate_conservative` (sum ≤ 1) as the strict shared control. Status unknown here.
 - **E6 hyperparameter search** (successive halving, multi / aggregate / aggregate_loose):
   no code or results found in any branch here. Bring them in before drawing conclusions.
-- **E8 pi0 weights** (professor's suggestion): implemented on `pi0-weights`, π_0 calibrated.
+- **E8 pi0 weights** (not the professor's suggestion; on hold): implemented on `pi0-weights`, π_0 calibrated.
   Decide on calibration noise (80–93% zero-cost episodes) and the dual lr in π_0 units first.
 - **E9 hierarchical / priority-based constraints:** semester (CSED499II) topic.
 - **Branches:** `branch1` (Vast.ai pipeline, memguard, analysis, video) was **archived on

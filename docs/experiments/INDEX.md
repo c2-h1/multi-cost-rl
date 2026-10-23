@@ -25,8 +25,9 @@ The lab-meeting notes number the stages differently: Task 1 = E1, Task 2 = E2, T
 | E5b | sg-pilot-v1-conservative | Strict shared budget x_h + x_v ≤ 1 as the matched control | unknown | `configs/safety/sg-pilot-v1-conservative.json` | branch1 b240033 | `runs/sg-pilot-v1-conservative/` | — |
 | E6 | Lagrangian hparam search | Successive-halving search over multi / aggregate / aggregate_loose | unknown — no code or results found | — | not found | not found | — |
 | E7 | humanoid-pilot | Can the multi-cost trainer run on HumanoidBench H1? | failed (no walking) | `configs/humanoid/humanoid-pilot.json` | 4ac4491 | W&B run `jfn5p0c9` | `reports/2026-09-21-training-report.md` §4 |
-| E8 | pi0-weights | Weight costs by the untrained policy's costs instead of the budgets (professor's suggestion) | planned; π_0 calibration done | `configs/safety/pi0-weights.json` | pi0-weights | `runs/calibration/` | — |
+| E8 | pi0-weights | Weight costs by the untrained policy's costs instead of the budgets (from the session's task text; not the professor's suggestion, see E10) | planned; π_0 calibration done | `configs/safety/pi0-weights.json` | pi0-weights | `runs/calibration/` | — |
 | E9 | hierarchical / priority safe RL | How to prioritize constraints that cannot all be met (CSED499II topic) | planned | — | — | — | notes p. 9 |
+| E10 | sg-pilot-v2 | E4 at 5M steps; multi dual lr 0.04, aggregate_loose 0.02. Do both converge? | running (started 2026-10-23) | `configs/safety/sg-pilot-v2.json` | pi0-weights afe85f2 | `runs/sg-pilot-v2-loose/`, `runs/sg-pilot-v2-multi/` (lab machine) | — |
 
 ## Dual learning rate: which value was used where
 
@@ -41,6 +42,7 @@ in the toy experiment; every Safety Gym launcher overrides it.
 | E5a | 0.04 | code (`run_followups.sh` on branch1) |
 | E7 humanoid | 0.02 | report §4 |
 | E6 hparam search | unknown | — |
+| E10 | multi 0.04, aggregate_loose 0.02 | config |
 
 Saved `config.json` files for E3–E5 were not available to confirm this directly.
 
@@ -115,6 +117,14 @@ multiplier did not help. Next: reward-only walking at the native horizon first, 
   exceeds the hazard budget; for the other seeds the budgets are looser than π_0. dual lr 0.02 acts
   several times faster in π_0 units than in budget units. Decide on more calibration episodes or
   pooled seeds, and on the dual lr, before running.
+
+## E10 sg-pilot-v2 (running)
+- **Why:** E4 did not converge in 2M steps (λ still rising). Follows interpretation A of the
+  professor's suggestion: fixed weights 1/d_i, x_h + x_v ≤ 2. Interpretation B (weights that follow
+  the violation) is open for the next lab meeting.
+- **Setup:** aggregate_loose (dual lr 0.02) and multi (0.04) × seeds 0/1/2, 5M steps (1250 updates).
+  Training evals use chunk 2; held-out uses `--eval-num-envs 10`, the same 50 layouts as E4.
+- **Cost:** ≈ 28 s per update on the lab machine → ≈ 12 h per run, 3 at a time, two groups in a row.
 
 ## E9 hierarchical / priority safe RL (planned)
 CSED499II topic: priorities among constraints that cannot all be met (people > expensive

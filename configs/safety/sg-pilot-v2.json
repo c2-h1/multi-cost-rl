@@ -1,0 +1,24 @@
+{
+  "id": "E10", "name": "sg-pilot-v2: E4 at 5M steps with faster duals", "status": "running",
+  "extends": "base.json",
+  "question": "Do aggregate_loose (x_h + x_v <= 2, fixed weights 1/d_i) and multi converge given 2.5x the steps of E4 and a faster multi dual?",
+  "code": {"branch": "pi0-weights", "commit": "afe85f2"},
+  "methods": ["aggregate_loose", "multi"],
+  "seeds": {"train": [0, 1, 2]},
+  "train_args": {"updates": 1250, "budget_hazard": 31.9, "budget_vase": 73.9, "device": "cpu", "threads": 2,
+                 "eval_num_envs": 2, "cost_weights": "budget"},
+  "per_method_args": {"aggregate_loose": {"dual_lr": 0.02}, "multi": {"dual_lr": 0.04}},
+  "dual_lr_reason": "multi 0.04 matches the growth rate of the shared multiplier at 0.02 (E5a reasoning); aggregate_loose keeps E4's 0.02",
+  "steps_per_run": 5000000,
+  "evaluation": {
+    "checkpoint_eval": "10 episodes, environment seed 10000+seed, every 25 updates, chunk 2 (differs from E4's chunk 10)",
+    "final_eval": "50 episodes, environment seed 200000+seed, action seed 300000+seed, chunk 2",
+    "heldout": "evaluate.py --episodes 50 --environment-seed 900000 --action-seed 900001 --eval-num-envs 10 (same layouts as E4), stochastic"
+  },
+  "commands": [
+    "nice -n 10 python run_pilot.py --group sg-pilot-v2-loose --methods aggregate_loose --budget-hazard 31.9 --budget-vase 73.9 --transitions 5000000 --device cpu --max-parallel 3",
+    "nice -n 10 python run_pilot.py --group sg-pilot-v2-multi --methods multi --budget-hazard 31.9 --budget-vase 73.9 --transitions 5000000 --device cpu --max-parallel 3 --extra \"--dual-lr 0.04\""
+  ],
+  "output": "runs/sg-pilot-v2-loose/, runs/sg-pilot-v2-multi/ on c2h1's lab machine (20 cores, 15 GB); W&B offline",
+  "notes": "Interpretation A of the professor's suggestion (fixed weights, sum <= 2); interpretation B (violation-adaptive weights) is open for the next lab meeting (progress.md)."
+}
