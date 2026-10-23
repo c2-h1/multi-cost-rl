@@ -291,7 +291,7 @@ $$
 > **해석 시 주의**
 > loose(삼각형)와 multi(정사각형)는 feasible set이 달라서, 이 표만으로 "어느 쪽이 return이 높다"고 결론 내리면 안 된다. 두 방법 모두 수렴하지 않았다. 결과를 쓸 때는 항상 **native constraint 만족 여부**와 **per-cost "둘 다 ≤ 1"**을 따로 보고할 것.
 
-### 3.2 E10 실험 규모 (숫자로)
+### 3.3 E10 실험 규모 (숫자로)
 
 출처: `configs/safety/sg-pilot-v2.json`, `configs/safety/base.json`, `run_pilot.py`, `train.py`. 서버에서 확인하려면 `runs/sg-pilot-v2-*/manifest.json`, 각 run의 `config.json`.
 
