@@ -17,6 +17,8 @@ def main():
     p.add_argument("--environment-seed", type=int, default=None)
     p.add_argument("--action-seed", type=int, default=None)
     p.add_argument("--deterministic", action="store_true")
+    p.add_argument("--eval-num-envs", type=int, default=None,
+                   help="simulators per chunk; changes the layouts (default: the run's own eval_num_envs)")
     p.add_argument("--output", default=None, help="Save per-episode returns/costs/layout seeds to this .npz")
     p.add_argument("--verify-saved", action="store_true", help="Check exact stored stochastic evaluation with original seeds/count")
     args = p.parse_args()
@@ -34,8 +36,10 @@ def main():
     model.eval()
     torch.manual_seed(action_seed)
     with torch.no_grad():
-        batch = collect_chunked(model, config, environment_seed, args.episodes, torch.device("cpu"), args.deterministic)
+        batch = collect_chunked(model, config, environment_seed, args.episodes, torch.device("cpu"), args.deterministic,
+                                chunk=args.eval_num_envs)
     metrics = summarize_rollout(batch, env, "replay")
+    metrics["replay/eval_num_envs"] = args.eval_num_envs or config.eval_num_envs
     # Distribution of raw episode costs, used to calibrate budgets from the unconstrained pilot.
     for i, name in enumerate(env.cost_names):
         for q in (50, 75, 90, 95):
