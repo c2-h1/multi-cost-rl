@@ -20,5 +20,6 @@
     "nice -n 10 python run_pilot.py --group sg-pilot-v2-multi --methods multi --budget-hazard 31.9 --budget-vase 73.9 --transitions 5000000 --device cpu --max-parallel 3 --extra \"--dual-lr 0.04\""
   ],
   "output": "runs/sg-pilot-v2-loose/, runs/sg-pilot-v2-multi/ on c2h1's lab machine (20 cores, 15 GB); W&B offline",
+  "rename_pending": "after all runs finish: runs/sg-pilot-v2-loose -> runs/spg-v2-aggregate-loose, runs/sg-pilot-v2-multi -> runs/spg-v2-multi, this file -> spg-v2.json (progress.md TODO). W&B groups already use the new names. Run config.json files keep the old group names.",
   "notes": "Interpretation A of the professor's suggestion (fixed weights, sum <= 2); interpretation B (violation-adaptive weights) is open for the next lab meeting (progress.md)."
 }

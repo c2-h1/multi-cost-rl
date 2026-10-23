@@ -329,6 +329,12 @@ for update in 1..500:
 ## 5. 남은 일 (구체적으로)
 
 0. **E10 실행 중** (tmux `sg-pilot-v2`, `runs/sg-pilot-v2.sh`): aggregate_loose 3개 (약 12h) → multi 3개 (약 12h) → held-out 평가(E4와 같은 50 layout, `--eval-num-envs 10`) → `runs/sg-pilot-v2-summary.md`. 진행 확인: `tail -n1 runs/sg-pilot-v2-*/*.log | cut -c1-200`, `python scripts/summarize_runs.py --root runs/sg-pilot-v2-loose`. 끝나면 볼 것: $\lambda$가 평평해졌는지(`lambda_change_last_quarter`), aggregate가 여전히 over-constrained인지, multi가 둘 다 ≤ 1이 되는지.
+   - **W&B**: tmux `wandb-tail`이 `metrics.jsonl`을 60초마다 업로드. project `multi-cost-rl`, group `spg-v2-aggregate-loose`, `spg-v2-multi` (W&B 쪽은 이미 새 이름).
+   - [ ] **TODO (E10이 모두 끝난 뒤) 이름 변경 `sg-pilot-v2` → `spg-v2`**. 조건: tmux `sg-pilot-v2`에 "all done", tmux `wandb-tail`이 종료됨. 학습 중에는 절대 옮기지 말 것.
+     1. `mv runs/sg-pilot-v2-loose runs/spg-v2-aggregate-loose`, `mv runs/sg-pilot-v2-multi runs/spg-v2-multi`
+     2. `mv runs/sg-pilot-v2.sh runs/spg-v2.sh` (`.out`도), 표 다시 만들기: `python scripts/summarize_runs.py --root runs --output runs/spg-v2-summary.md`
+     3. `git mv configs/safety/sg-pilot-v2.json configs/safety/spg-v2.json`, 안의 name/commands/output 수정. `docs/experiments/INDEX.md`, 이 문서도 수정 → commit
+     4. 각 run의 `config.json`, `manifest.json` 안의 옛 group 이름은 기록이므로 **고치지 않음** (config에 "renamed from sg-pilot-v2-*" 메모만)
 
 1. **E8 결정 2개** (§6) → 결정하면 config `configs/safety/pi0-weights.json` 수정.
 2. **(결정 1에 따라) calibration 다시 돌리기**: 예) `python calibrate_pi0.py --seed s --episodes 300`.
