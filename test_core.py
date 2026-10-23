@@ -119,6 +119,14 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(batch["returns"].shape, (2,))
         self.assertEqual(batch["costs"].shape, (2, 2))
 
+    def test_render_layout_matches_chunked_evaluation(self):
+        from render_policy import layout_seed
+        for seed, chunk in [(900000, 10), (10001, 2)]:
+            expected = []
+            for start in range(0, 2 * chunk, chunk):  # what SafetyGoalBatch.reset draws per chunk
+                expected += np.random.default_rng(seed + start).integers(0, 2**31 - 1, chunk).tolist()
+            self.assertEqual([layout_seed(seed, chunk, k) for k in range(2 * chunk)], expected)
+
 
 if __name__ == "__main__":
     unittest.main()

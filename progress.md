@@ -291,6 +291,7 @@ E10은 **`--device cpu`로 돌고 있어서 GPU를 전혀 쓰지 않는다.** GP
 | `scripts/summarize_runs.py` | **(신규)** `runs/` 아래 결과로 표 재생성 (학습 안 함). status, return, $x_i$, native feasible vs 둘 다 ≤ 1, 마지막 $\lambda$, 마지막 1/4 동안의 $\lambda$ 변화(수렴 판단용) |
 | `slurm_safety_calibrate_titanxp.sh`, `slurm_safety_multicost_titanxp.sh` | titanxp cluster에서 budget calibration / 본 실험 |
 | `validate_safety.py` | cost 신호가 제대로 나오는지 검증 (영상 포함) |
+| `render_policy.py` | **(신규, 10/23)** checkpoint의 episode 영상 (mp4). 맵은 `evaluate.py`와 같은 규칙 (기본: held-out layout 0, env seed 900000, chunk 10). 화면 위에 step, return, goals, 누적 hazard/vase cost와 $x_i$를 표시하고, cost가 생긴 step은 빨간 테두리. 결과는 `<run>/videos/`에 mp4 + json |
 | `test_core.py` | unit test 12개. 이번 세션에 추가: native feasibility ≠ per-cost, config `extends`/CLI override, repo의 config 전부 load 가능 |
 
 ### 4.2 실험 기록 체계 (이번 세션에 만듦)
@@ -339,6 +340,7 @@ for update in 1..1250:      # E10: 5M step (E4는 500 = 2M)
 ## 5. 남은 일 (구체적으로)
 
 0. **E10 실행 중** (tmux `sg-pilot-v2`, `runs/sg-pilot-v2.sh`): aggregate_loose 3개 (약 12h) → multi 3개 (약 12h) → held-out 평가(E4와 같은 50 layout, `--eval-num-envs 10`) → `runs/sg-pilot-v2-summary.md`. 진행 확인: `tail -n1 runs/sg-pilot-v2-*/*.log | cut -c1-200`, `python scripts/summarize_runs.py --root runs/sg-pilot-v2-loose`. 끝나면 볼 것: $\lambda$가 평평해졌는지(`lambda_change_last_quarter`), aggregate가 여전히 over-constrained인지, multi가 둘 다 ≤ 1이 되는지.
+   - **영상**: `nice -n 19 python render_policy.py runs/sg-pilot-v2-loose/*/` (각 run의 최신 `checkpoint.pt`, episode 1개에 약 1분). 학습 중에는 checkout의 HEAD를 바꾸지 않도록 별도 worktree에서 실행 (아직 시작 안 한 multi run이 기록하는 git commit이 바뀌지 않게).
    - **W&B**: tmux `wandb-tail`이 `metrics.jsonl`을 60초마다 업로드. project `multi-cost-rl`, group `spg-v2-aggregate-loose`, `spg-v2-multi` (W&B 쪽은 이미 새 이름).
    - [ ] **TODO (E10이 모두 끝난 뒤) 이름 변경 `sg-pilot-v2` → `spg-v2`**. 조건: tmux `sg-pilot-v2`에 "all done", tmux `wandb-tail`이 종료됨. 학습 중에는 절대 옮기지 말 것.
      1. `mv runs/sg-pilot-v2-loose runs/spg-v2-aggregate-loose`, `mv runs/sg-pilot-v2-multi runs/spg-v2-multi`
