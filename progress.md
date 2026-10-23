@@ -225,6 +225,57 @@ $d_i = \max(1, \text{round}(0.5 \times \bar C_i, 1))$ → $d_h = 31.9$, $d_v = 7
 > **해석 시 주의**
 > loose(삼각형)와 multi(정사각형)는 feasible set이 달라서, 이 표만으로 "어느 쪽이 return이 높다"고 결론 내리면 안 된다. 두 방법 모두 수렴하지 않았다. 결과를 쓸 때는 항상 **native constraint 만족 여부**와 **per-cost "둘 다 ≤ 1"**을 따로 보고할 것.
 
+### 3.2 E10 실험 규모 (숫자로)
+
+출처: `configs/safety/sg-pilot-v2.json`, `configs/safety/base.json`, `run_pilot.py`, `train.py`. 서버에서 확인하려면 `runs/sg-pilot-v2-*/manifest.json`, 각 run의 `config.json`.
+
+**한 run (method 1개 × seed 1개)**
+
+| 항목 | 값 | 계산 |
+|---|---:|---|
+| episode 길이 (trajectory) | 1000 step | 고정 horizon, 중간 reset 없음 |
+| update 1번의 batch | **episode 4개 = 4,000 transition** | `num_envs` 4 × 1000 step. 4개 env가 서로 다른 random layout |
+| update 횟수 | **1,250** | 5M / 4,000 |
+| 학습 episode 총수 | **5,000** | 1,250 × 4 |
+| 학습 transition 총수 | **5,000,000** | |
+| PPO gradient step / update | 최대 48 | 6 epoch × 8 minibatch (4,000 / 512 = 7개 + 나머지 416개 1개). KL > 0.03이면 그 자리에서 중단 |
+| PPO gradient step 총수 | 최대 60,000 | |
+| $\lambda$ 업데이트 | 1,250번 | update마다 1번, 그 batch 4 episode의 평균 cost로 |
+| 중간 eval | 51번 × 10 episode | 시작 시 1번 + 25 update(100K step)마다. 매번 **같은 10개 layout** (env seed 10000+seed, chunk 2) |
+| final eval | 50 episode × 2 | stochastic, deterministic. env seed 200000+seed |
+| held-out eval (끝난 뒤) | 50 episode | env seed 900000, chunk 10. **E4와 같은 50개 layout**. 최종 결론은 이것 |
+| checkpoint | 25 update마다 | `checkpoint-{step}.pt` + 최신 `checkpoint.pt` |
+
+**실험 전체**
+
+| 항목 | 값 |
+|---|---|
+| method | `aggregate_loose` (dual lr 0.02), `multi` (dual lr 0.04) |
+| seed | 0, 1, 2 |
+| run 수 | 2 × 3 = 6 |
+| 학습 transition 총합 | 30M (6 × 5M) |
+| 실행 방식 | `run_pilot.py --device cpu --max-parallel 3`: loose 3개 동시 → 끝나면 multi 3개 동시. tmux `sg-pilot-v2` |
+| 속도 (10/23 W&B 기준) | 3개 동시 실행에서 update 1번 약 23초 (eval 포함) → run 1개 약 8시간 |
+
+**고정 설정 (E4와 동일)**: budget $d_h = 31.9$, $d_v = 73.9$, $\lambda_0 = 0.1$, PPO lr 3e-4, clip 0.2, GAE $\lambda$ 0.95, $\gamma = 1$, target KL 0.03, entropy 0, grad clip 0.5. E4와 다른 점은 **update 수 (500 → 1,250)**와 **multi의 dual lr (0.02 → 0.04)** 두 가지뿐.
+
+**네트워크**: actor 62 → 64 → 64 → 2 (tanh), critic 62 → 64 → 64 → 3 (reward, hazard, vase). 파라미터 약 16.7K개 (actor 8.3K, critic 8.4K).
+
+#### 왜 GPU를 안 쓰나
+
+E10은 **`--device cpu`로 돌고 있어서 GPU를 전혀 쓰지 않는다.** GPU 온도가 안 오르는 게 정상이다. GPU로 돌려도 빨라지지 않는다 (PLAN §2에서 측정: CPU와 CUDA 속도 같음).
+
+- **시간의 대부분은 MuJoCo 시뮬레이션**이다. CPU 코어 하나에서 Python loop로 4개 env를 차례로 step한다 (약 400 step/s/env). update 1번에 4,000 step.
+- **네트워크가 너무 작다.** 16.7K 파라미터 MLP는 CPU에서도 순식간이다. rollout 중 추론은 매 step마다 batch 4개라서 GPU로 보내면 전송 비용이 계산보다 크다.
+- PPO update는 update당 최대 48번의 작은 gradient step이라 몇 초 안 걸린다.
+- 그래서 속도를 올리는 방법은 GPU가 아니라 **병렬 run 수 (CPU 코어)**다.
+
+#### 그래프 읽을 때 알아둘 것
+
+- **eval 점은 노이즈가 크다.** 10 episode 평균이고 100K step마다 하나라서, 이웃한 점끼리 정규화 cost 합이 ±0.5~1씩 튄다. 점 하나로 판단하지 말 것.
+- **$\lambda$는 eval이 아니라 train batch로 움직인다.** $\lambda$의 움직임은 `train/normalized_hazard + train/normalized_vase` (update마다, 4 episode 평균)와 비교해야 맞다. W&B에서 smoothing을 켜면 추세가 보인다.
+- **중간 관찰 (10/23, 약 2.3M step, aggregate_loose)**: 세 seed 모두 $\lambda$가 1M 근처에서 꺾임 (최고 약 4.5 / 5 / 6.6). seed 1은 eval cost 합이 1.7M 이후 대체로 2 아래이고 $\lambda$가 4.5 → 3.1로 내려가는 중 (약한 overshoot, dual update가 정상적으로 반응 중). 나머지 두 seed는 합이 2 근처에서 오르내리고 $\lambda$가 평평함. 결론은 5M과 held-out 결과를 보고 낸다.
+
 ---
 
 ## 4. 코드 구조 (`spg-v2` branch 기준)
