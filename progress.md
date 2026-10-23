@@ -23,9 +23,9 @@ updated: 2026-10-23
 | E1, E2 | Task 1 (toy), Task 2 (논문 재현) | 완료 (이 문서에서는 생략) |
 | **E3** | SafetyPointGoal2 budget calibration: unconstrained agent로 $d_h = 31.9$, $d_v = 73.9$를 정함 | 완료 |
 | **E4** | SafetyPointGoal2 본 실험: unconstrained / aggregate_loose / multi × seed 3개, 2M step (§3.1의 표) | 완료 (수렴 안 함) |
-| E5a | E4 follow-up: dual lr 0.04로 multi가 수렴하는지 | Vast.ai에서 돌렸지만 결과를 이 컴퓨터에서 못 찾음 |
-| E5b | E4 follow-up: aggregate_conservative ($x_h + x_v \le 1$), multi와 feasible set을 맞춘 비교 대상 | 위와 같음 |
-| E6 | Lagrangian hyperparameter search (successive halving) | 코드와 결과를 못 찾음 |
+| E5a | E4 follow-up: dual lr 0.04로 multi가 수렴하는지 | 종결: 수렴하지 않음 (파일 없음) |
+| E5b | E4 follow-up: aggregate_conservative ($x_h + x_v \le 1$), multi와 feasible set을 맞춘 비교 대상 | 종결: 수렴하지 않음 (파일 없음) |
+| E6 | Lagrangian hyperparameter search (successive halving) | 종결: 당분간 hyperparameter는 직접 고름 |
 | E7 | HumanoidBench pilot | 실패 (생략) |
 | E8 | (취소된 실험, 번호만 남김) | 취소 |
 | E9 | hierarchical / priority safe RL (CSED499II 주제) | 계획 |
@@ -167,7 +167,6 @@ $\eta$ = `dual_lr`, $\lambda_0 = 0.1$. **어떤 dual lr이 어디서 쓰였는�
 |---|---|---|
 | SafetyPointGoal2 calibration, 본 실험 (E3/E4) | **0.02** | `run_pilot.py` FROZEN, slurm 스크립트, 미팅 노트 |
 | follow-up E5a | 0.04 | branch1의 `run_followups.sh` |
-| hparam search (E6) | unknown | 코드도 결과도 이 repo에 없음 |
 | E10 | aggregate_loose 0.02, multi **0.04** | `configs/safety/sg-pilot-v2.json` |
 
 > [!tip] 직관: $\lambda$는 violation의 누적합이다 (integral controller)
@@ -291,11 +290,9 @@ for update in 1..1250:      # E10: 5M step (E4는 500 = 2M)
 
 1. **E10 결과 정리**: 끝나면 held-out 결과로 `reports/spg-v2/README.md` 작성, INDEX 업데이트. E4와 같은 표(§3.1) 형식으로 비교.
 2. **랩미팅**: 해석 B 상의 (§6).
-3. **E5a / E5b 결과 찾기** (dual lr 0.04, conservative): Vast.ai에서 돌렸고 이 컴퓨터에는 없음. `runs/sg-pilot-v1-duallr004/`, `runs/sg-pilot-v1-conservative/`를 가져와서 `summarize_runs.py`로 정리. E10과 비교할 수 있음 (특히 conservative는 아직 결과가 하나도 없음).
-4. **E6 hparam search 찾기**: successive halving 코드와 결과가 어떤 branch, commit, 파일에도 없음. 있는 곳(다른 컴퓨터?)을 찾아서 `runs/hparam/`에 넣기.
-5. **`spg-v2`를 `main`에 merge** (GitHub PR). 아직 안 함.
-6. GitHub의 PR #1이 자동으로 닫혔는지 확인 (`gh`가 없어서 여기서는 확인 못 함).
-7. 미팅 노트의 개선 항목:
+3. **`spg-v2`를 `main`에 merge** (GitHub PR). 아직 안 함.
+4. GitHub의 PR #1이 자동으로 닫혔는지 확인 (`gh`가 없어서 여기서는 확인 못 함).
+5. 미팅 노트의 개선 항목:
    - [x] step 수 2M → 5M (E10, 실행 중)
    - [ ] seed 5개 이상 (tuning seed와 최종 보고 seed는 분리)
    - [ ] budget sweep ($d_i$를 여러 배율로)으로 **return vs. joint pass rate** 곡선 비교 (feasible set을 맞춘 공정한 비교)

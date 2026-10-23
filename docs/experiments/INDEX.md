@@ -21,9 +21,9 @@ The lab-meeting notes number the stages differently: Task 1 = E1, Task 2 = E2, T
 | E2 | paper-repro | Does our Safety-Gymnasium setup reproduce Ray et al. (2019) PPO / PPO-Lag? | completed (notes) | `configs/safety/paper-repro.json` | unverified | `runs/paper-repro*/` (not here) | `reports/paper-repro/` |
 | E3 | sg-calibration | Per-cost budgets for SafetyPointGoal2 | completed | `configs/safety/sg-calibration.json` | branch1 | `runs/dev/unconstrained-s100`, `runs/pipeline/status.json` (Vast.ai) | budgets 31.9 / 73.9 |
 | E4 | sg-pilot-v1 | One shared budget vs two separate budgets on SafetyPointGoal2 | completed (notes) | `configs/safety/sg-pilot-v1.json` | branch1 | `runs/sg-pilot-v1/` (Vast.ai), W&B disabled | `reports/sg-pilot-v1/` |
-| E5a | sg-pilot-v1-duallr004 | Do separate multipliers converge with dual lr 0.04? | unknown | `configs/safety/sg-pilot-v1-duallr004.json` | branch1 b240033 | `runs/sg-pilot-v1-duallr004/` | — |
-| E5b | sg-pilot-v1-conservative | Strict shared budget x_h + x_v ≤ 1 as the matched control | unknown | `configs/safety/sg-pilot-v1-conservative.json` | branch1 b240033 | `runs/sg-pilot-v1-conservative/` | — |
-| E6 | Lagrangian hparam search | Successive-halving search over multi / aggregate / aggregate_loose | unknown — no code or results found | — | not found | not found | — |
+| E5a | sg-pilot-v1-duallr004 | Do separate multipliers converge with dual lr 0.04? | closed: did not converge (user, 2026-10-23) | `configs/safety/sg-pilot-v1-duallr004.json` | branch1 b240033 | `runs/sg-pilot-v1-duallr004/` | — |
+| E5b | sg-pilot-v1-conservative | Strict shared budget x_h + x_v ≤ 1 as the matched control | closed: did not converge (user, 2026-10-23) | `configs/safety/sg-pilot-v1-conservative.json` | branch1 b240033 | `runs/sg-pilot-v1-conservative/` | — |
+| E6 | Lagrangian hparam search | Successive-halving search over multi / aggregate / aggregate_loose | closed 2026-10-23 (not pursued) | — | not found | not found | — |
 | E7 | humanoid-pilot | Can the multi-cost trainer run on HumanoidBench H1? | failed (no walking) | `configs/humanoid/humanoid-pilot.json` | 4ac4491 | W&B run `jfn5p0c9` | `reports/2026-09-21-training-report.md` §4 |
 | E8 | pi0-weights | (dropped 2026-10-23: weights from the untrained policy; not the professor's suggestion) | dropped | — | tag `archive/pi0-weights` | — | — |
 | E9 | hierarchical / priority safe RL | How to prioritize constraints that cannot all be met (CSED499II topic) | planned | — | — | — | notes p. 9 |
@@ -75,22 +75,15 @@ Saved `config.json` files for E3–E5 were not available to confirm this directl
 - **Findings:** aggregate: return 12.2, x = (0.59, 0.81), both ≤ 1 in 2/3 seeds, its own constraint
   in 3/3, so seed 0 meets sum ≤ 2 while x_vase = 1.1. multi: return 19.3, x = (1.59, 1.37), 0/3.
   Multipliers still rising at 2M steps (not converged).
-- **Next:** E5a (faster duals), E5b (matched strict aggregate), E8.
+- **Next:** E5a (faster duals), E5b (matched strict aggregate), then E10 (5M steps).
 
-## E5a / E5b follow-ups (unknown)
-Queued by `run_followups.sh` on branch1 after the meeting ("experiments in progress"). Check
-`runs/sg-pilot-v1-duallr004/` and `runs/sg-pilot-v1-conservative/` on the machine where they ran,
-then run `python scripts/summarize_runs.py --root <dir>` and update this entry.
+## E5a / E5b follow-ups (closed)
+Run by `run_followups.sh` on branch1 (2M steps). Per the user (2026-10-23), neither converged;
+the run files are not available, so no numbers are recorded. Closed; E10 continues with more steps.
 
-## E6 Lagrangian hyperparameter search (unknown)
-A successive-halving search over multi / aggregate / aggregate_loose was described, but on
-2026-10-22 no branch (local or GitHub: main, branch1, pi0-weights (now spg-v2)), commit message, file or run
-directory in this checkout mentions it. **No results are recorded here.** To consolidate it:
-copy its code onto a branch and its run directories (or summaries) under `runs/hparam/`, then
-run `python scripts/summarize_runs.py --root runs/hparam` and record per rung which runs finished.
-When comparing methods, report native feasibility and both ≤ 1 separately, keep tuning seeds
-apart from final-report seeds, and don't treat a near-zero multiplier on a slack constraint as
-non-convergence.
+## E6 Lagrangian hyperparameter search (closed)
+A successive-halving search over multi / aggregate / aggregate_loose was described, but no code
+or results were found. Closed on 2026-10-23: hyperparameters are chosen by hand for now (E10).
 
 ## E7 humanoid-pilot (failed)
 h1-walk-v0, 3 costs (fall risk, joint limit, actuator load), horizon 256, 300 updates, seed 0.

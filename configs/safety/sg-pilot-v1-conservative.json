@@ -1,5 +1,5 @@
 {
-  "id": "E5b", "name": "sg-pilot-v1-conservative: strict shared budget (x_h + x_v <= 1)", "status": "unknown",
+  "id": "E5b", "name": "sg-pilot-v1-conservative: strict shared budget (x_h + x_v <= 1)", "status": "closed: did not converge (reported by the user 2026-10-23; run files unavailable)",
   "extends": "sg-pilot-v1.json",
   "code": {"branch": "branch1", "commit": "b240033", "script": "run_followups.sh"},
   "methods": ["aggregate_conservative"],

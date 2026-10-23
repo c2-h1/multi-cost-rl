@@ -140,10 +140,9 @@ Main finding of E4: aggregate_loose was over-constrained (return 12.2 vs 19.3) w
 did not yet meet its budgets, and **the multipliers had not converged by 2M steps**.
 
 Open work:
-- **E5 follow-ups** (branch1 `run_followups.sh`): `multi` with dual lr 0.04, and
-  `aggregate_conservative` (sum ≤ 1) as the strict shared control. Status unknown here.
-- **E6 hyperparameter search** (successive halving, multi / aggregate / aggregate_loose):
-  no code or results found in any branch here. Bring them in before drawing conclusions.
+- **E5 follow-ups** (multi with dual lr 0.04; aggregate_conservative): closed 2026-10-23, did not
+  converge in 2M steps (run files unavailable).
+- **E6 hyperparameter search:** closed 2026-10-23; hyperparameters are chosen by hand (E10).
 - **E10 sg-pilot-v2** (running): E4's aggregate_loose (dual lr 0.02) and multi (0.04) at 5M steps.
 - **Weighted aggregation, interpretation B** (weights that follow the violation): to discuss at the
   next lab meeting (progress.md §6).

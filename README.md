@@ -26,7 +26,7 @@ separate, deliberately faithful PPO / PPO-Lag implementation.
 ```text
 E1 toy comparison ──> E2 reproduce Safety Gym paper (1 cost) ──> E3 calibrate 2 budgets
    ──> E4 aggregate vs separate on SafetyPointGoal2 ──> E5 follow-ups (faster duals,
-   strict aggregate) / E6 hparam search ──> E10 E4 at 5M steps ──> E9 hierarchical constraints
+   strict aggregate; did not converge) ──> E10 E4 at 5M steps ──> E9 hierarchical constraints
 E7 humanoid pilot (side branch, failed: robot never learned to walk)
 ```
 
