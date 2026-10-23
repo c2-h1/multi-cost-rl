@@ -6,7 +6,8 @@ updated: 2026-10-23
 ---
 
 # Multi-cost Safe RL: SafetyPointGoal2-v0 (hazard + vase)
-> [!summary] TL;DR
+> [!NOTE]
+> **TL;DR**
 > - **질문**: safety cost를 하나로 합치지 않고 종류별(hazard, vase)로 나눠서 각각 제약을 걸면, 같은 safety 수준에서 return이 더 높아질까?
 > - **방법**: PPO + Lagrangian(primal-dual). cost를 budget으로 나눠 단위를 맞춘 뒤 ($x_i = J_{c_i}/d_i$), 하나의 $\lambda$(aggregate)와 cost별 $\lambda_i$(multi)를 비교.
 > - **지금까지 결과**: 2M step 안에 수렴하지 않음. aggregate는 overshoot 때문에 over-constrained, multi는 아직 budget violation.
@@ -38,7 +39,7 @@ updated: 2026-10-23
 기존 Safety Gym 논문은 hazard와 vase를 **하나의 scalar cost**로 합친다.
 
 $$
-c_t = \mathbb{1}[\text{hazard 안에 있음} \;\lor\; \text{vase를 건드림}]
+c_t = \mathbb{1}[\text{hazard 안에 있음} \ \lor\  \text{vase를 건드림}]
 $$
 
 이렇게 하면 $\lambda$가 하나라서 두 종류의 violation을 구분하지 못한다. 가설은 두 가지:
@@ -55,7 +56,7 @@ $$
 finite horizon $T$ (Safety Gym: $T = 1000$), $\gamma = 1$.
 
 $$
-\max_\pi \; J_r(\pi) = \mathbb{E}_\pi\Big[\sum_{t=0}^{T-1} r_t\Big]
+\max_\pi \  J_r(\pi) = \mathbb{E}_\pi\Big[\sum_{t=0}^{T-1} r_t\Big]
 \quad \text{s.t.} \quad
 J_{c_i}(\pi) = \mathbb{E}_\pi\Big[\sum_{t=0}^{T-1} c_{i,t}\Big] \le d_i, \quad i = 1,\dots,m
 $$
@@ -82,22 +83,23 @@ $$
 | `unconstrained` | 없음 ($\lambda = 0$) | 0 | Unconstrained |
 | `aggregate_loose` | $x_h + x_v \le 2$ | 1 | Aggregate (sum ≤ 2) |
 | `aggregate_conservative` | $x_h + x_v \le 1$ | 1 | (아직 실험 안 함) |
-| `multi` | $x_h \le 1,\; x_v \le 1$ | 2 | Separate |
+| `multi` | $x_h \le 1,\  x_v \le 1$ | 2 | Separate |
 
 **Feasible set 포함 관계**:
 
 $$
-\underbrace{\{x_h + x_v \le 1\}}_{\text{conservative}}
-\;\subset\;
-\underbrace{\{x_h \le 1,\, x_v \le 1\}}_{\text{multi (정사각형)}}
-\;\subset\;
-\underbrace{\{x_h + x_v \le 2\}}_{\text{loose (삼각형)}}
+\underbrace{\lbrace x_h + x_v \le 1\rbrace}_{\text{conservative}}
+\quad\subset\quad
+\underbrace{\lbrace x_h \le 1,\  x_v \le 1\rbrace}_{\text{multi (정사각형)}}
+\quad\subset\quad
+\underbrace{\lbrace x_h + x_v \le 2\rbrace}_{\text{loose (삼각형)}}
 $$
 
-> [!note] 직관
+> [!NOTE]
+> **직관**
 > - loose의 삼각형은 multi의 정사각형을 포함하므로 **loose가 더 느슨한 제약**이다. 예: $(x_h, x_v) = (0.7, 1.1)$은 loose는 통과, multi는 violation.
 > - "같은 safety"에서 비교하려면 feasible set을 맞춰야 한다. loose와 multi의 return을 그대로 비교하면 공정하지 않다.
-> - **일반화**: 제약을 합치면 feasible set은 항상 넓어지거나 같다. $\forall i,\, x_i \le 1 \Rightarrow \sum_i x_i \le m$ 이지만 역은 성립하지 않는다.
+> - **일반화**: 제약을 합치면 feasible set은 항상 넓어지거나 같다. $\forall i,\  x_i \le 1 \Rightarrow \sum_i x_i \le m$ 이지만 역은 성립하지 않는다.
 > - conservative의 합 ≤ 1은 "모든 $x_i \le 1$을 보장하는 가장 큰 shared bound"다: $x_j \le \sum_i x_i \le 1$.
 
 ### 2.4 Lagrangian과 primal-dual
@@ -105,17 +107,19 @@ $$
 제약 문제를 $\lambda \ge 0$을 가진 min-max 문제로 바꾼다.
 
 **multi**:
+
 $$
 \mathcal{L}(\pi, \boldsymbol\lambda) = J_r(\pi) - \sum_i \lambda_i \big(x_i(\pi) - 1\big)
 $$
 
 **aggregate (loose / conservative)**:
+
 $$
-\mathcal{L}(\pi, \lambda) = J_r(\pi) - \lambda \Big(\sum_i x_i(\pi) - k\Big), \qquad k = 2 \text{ (loose)},\; 1 \text{ (conservative)}
+\mathcal{L}(\pi, \lambda) = J_r(\pi) - \lambda \Big(\sum_i x_i(\pi) - k\Big), \qquad k = 2 \text{ (loose)},\  1 \text{ (conservative)}
 $$
 
 $$
-\min_{\lambda \ge 0} \; \max_\pi \; \mathcal{L}(\pi, \lambda)
+\min_{\lambda \ge 0} \  \max_\pi \  \mathcal{L}(\pi, \lambda)
 $$
 
 번갈아 업데이트한다:
@@ -124,11 +128,11 @@ $$
 
 ### 2.5 Primal step: PPO
 
-**(a) GAE.** reward와 각 정규화 cost 신호 $s \in \{r, c_h/d_h, c_v/d_v\}$마다 따로 계산 ($\gamma = 1$, $\lambda_{\text{GAE}} = 0.95$, 마지막 $V = 0$):
+**(a) GAE.** reward와 각 정규화 cost 신호 $s \in \lbrace r, c_h/d_h, c_v/d_v\rbrace$마다 따로 계산 ($\gamma = 1$, $\lambda_{\text{GAE}} = 0.95$, 마지막 $V = 0$):
 
 $$
 \delta_t^{s} = s_t + V^{s}(o_{t+1}) - V^{s}(o_t), \qquad
-\hat A_t^{s} = \sum_{k \ge 0} (\lambda_{\text{GAE}})^k \, \delta_{t+k}^{s}
+\hat A_t^{s} = \sum_{k \ge 0} (\lambda_{\text{GAE}})^k \  \delta_{t+k}^{s}
 $$
 
 critic은 하나의 네트워크에 출력 3개 ($V^r, V^h, V^v$).
@@ -146,7 +150,7 @@ $$
 **(c) Clipped surrogate** ($\rho_t = \pi_\theta(a_t|o_t) / \pi_{\text{old}}(a_t|o_t)$, $\epsilon = 0.2$):
 
 $$
-L^{\text{CLIP}}(\theta) = -\,\mathbb{E}_t\Big[\min\big(\rho_t \tilde A_t,\; \text{clip}(\rho_t, 1-\epsilon, 1+\epsilon)\,\tilde A_t\big)\Big]
+L^{\text{CLIP}}(\theta) = -\ \mathbb{E}_t\Big[\min\big(\rho_t \tilde A_t,\  \text{clip}(\rho_t, 1-\epsilon, 1+\epsilon)\ \tilde A_t\big)\Big]
 $$
 
 total loss = $L^{\text{CLIP}} + 1.0 \cdot \tfrac12 \lVert V - \text{target} \rVert^2$ (3개 head 모두). 6 epoch, minibatch 512, approx KL > 0.03이면 early stop, grad norm clip 0.5.
@@ -156,9 +160,9 @@ total loss = $L^{\text{CLIP}} + 1.0 \cdot \tfrac12 \lVert V - \text{target} \rVe
 PPO 업데이트가 끝난 뒤, 이번 batch(4 episodes)의 평균 정규화 cost $\hat x_i$로:
 
 $$
-\text{multi:}\quad \lambda_i \leftarrow \max\big(0,\; \lambda_i + \eta\,(\hat x_i - 1)\big)
+\text{multi:}\quad \lambda_i \leftarrow \max\big(0,\  \lambda_i + \eta\ (\hat x_i - 1)\big)
 \qquad
-\text{aggregate:}\quad \lambda \leftarrow \max\Big(0,\; \lambda + \eta\,\big(\textstyle\sum_i \hat x_i - k\big)\Big)
+\text{aggregate:}\quad \lambda \leftarrow \max\Big(0,\  \lambda + \eta\ \big(\textstyle\sum_i \hat x_i - k\big)\Big)
 $$
 
 $\eta$ = `dual_lr`, $\lambda_0 = 0.1$. **어떤 dual lr이 어디서 쓰였는지** (이번 세션에서 정리; `train.py` 기본값 0.15는 SafetyPointGoal2에서는 안 씀):
@@ -169,11 +173,14 @@ $\eta$ = `dual_lr`, $\lambda_0 = 0.1$. **어떤 dual lr이 어디서 쓰였는�
 | follow-up E5a | 0.04 | branch1의 `run_followups.sh` |
 | E10 | aggregate_loose 0.02, multi **0.04** | `configs/safety/sg-pilot-v2.json` |
 
-> [!tip] 직관: $\lambda$는 violation의 누적합이다 (integral controller)
+> [!TIP]
+> **직관: $\lambda$는 violation의 누적합이다 (integral controller)**
+>
 > $$\lambda_K = \lambda_0 + \eta \sum_{k=1}^{K} (\hat x_k - 1) \quad (\text{0 아래로 안 내려가는 것만 빼면})$$
+>
 > - violation이 계속되는 동안 $\lambda$는 **직선으로** 계속 오른다.
 > - violation이 해소된 순간 $\lambda$는 이미 크다. 그래서 cost가 budget보다 한참 아래로 내려가고(**over-constrained**), $\lambda$가 다시 줄어드는 데 오래 걸린다 (**overshoot**).
-> - $\lambda$의 반응 속도는 $\eta \times$(update 횟수)$\times$(violation의 크기)로 정해진다.
+> - $\lambda$의 반응 속도는 $\eta$ × (update 횟수) × (violation의 크기)로 정해진다.
 
 ---
 
@@ -182,10 +189,8 @@ $\eta$ = `dual_lr`, $\lambda_0 = 0.1$. **어떤 dual lr이 어디서 쓰였는�
 **환경**: Safety-Gymnasium `SafetyPointGoal2-v0`, episode 1000 step, Point robot이 goal에 도달하면 reward.
 
 **cost 정의** (`safety_adapter.py`, 환경의 `cost_sum`은 쓰지 않음):
-$$
-c_{h,t} = \mathbb{1}[\texttt{cost\_hazards} > 0], \qquad
-c_{v,t} = \mathbb{1}[\texttt{cost\_vases\_contact} > 0 \;\lor\; \texttt{cost\_vases\_velocity} > 0]
-$$
+- $c_{h,t}$ = 1[`cost_hazards` > 0]
+- $c_{v,t}$ = 1[`cost_vases_contact` > 0 or `cost_vases_velocity` > 0]
 - 한 step이 두 cost에 동시에 들어갈 수 있음
 - observation: 원래 60차원 + (경과 시간 비율, absorbed flag) = 62차원
 
@@ -194,7 +199,8 @@ $d_i = \max(1, \text{round}(0.5 \times \bar C_i, 1))$ → $d_h = 31.9$, $d_v = 7
 
 **본 실험 설정 (E4, `run_pilot.py` FROZEN)**: 4 env × 1000 step × 500 update = 2M step, dual lr 0.02, $\lambda_0 = 0.1$, 25 update마다 eval 10 episodes, 끝나면 final eval 50 episodes, held-out 평가는 `evaluate.py --environment-seed 900000 --action-seed 900001` (50 layouts).
 
-> [!warning] Evaluation layout은 env seed **와** chunk 크기로 정해진다
+> [!WARNING]
+> **Evaluation layout은 env seed **와** chunk 크기로 정해진다**
 > `collect_chunked`가 chunk마다 `make_env(seed + start, size)`를 부르기 때문. branch1(E3/E4)은 chunk 10, main의 `run_pilot.py`는 `--eval-num-envs 2`. **E4와 비교하려면 `--eval-num-envs 10`** (E10은 학습 중 eval은 2, held-out 평가만 10). 한 실험 안에서는 절대 바꾸지 말 것.
 
 ### 3.1 E4 결과 (held-out 평가, 미팅 노트 260930)
@@ -215,7 +221,8 @@ $d_i = \max(1, \text{round}(0.5 \times \bar C_i, 1))$ → $d_h = 31.9$, $d_v = 7
 - **Aggregate**: violation이 $\hat x_h + \hat x_v - 2$라서 초반에 약 $3.6 - 2 = 1.6$으로 크다 → $\lambda$가 multi보다 약 2배 빨리 오름.
   - $\lambda \approx 8$까지 올라간 뒤에야 violation이 해소되고, 그때는 이미 너무 커서 합이 1.41까지 내려감 → **overshoot로 인한 over-constrained**. 이후 $\lambda$가 천천히 내려오는 중이었음.
 
-> [!warning] 해석 시 주의
+> [!WARNING]
+> **해석 시 주의**
 > loose(삼각형)와 multi(정사각형)는 feasible set이 달라서, 이 표만으로 "어느 쪽이 return이 높다"고 결론 내리면 안 된다. 두 방법 모두 수렴하지 않았다. 결과를 쓸 때는 항상 **native constraint 만족 여부**와 **per-cost "둘 다 ≤ 1"**을 따로 보고할 것.
 
 ---
@@ -310,14 +317,16 @@ for update in 1..1250:      # E10: 5M step (E4는 500 = 2M)
 #### 해석 B 정리 (랩미팅 상의용)
 
 **식.** $w_h + w_v = 2$를 유지하면서, 매 update마다 violation이 큰 cost 쪽으로 weight를 옮긴다. 제약은 $\sum_i w_i x_i \le 2$, $\lambda$는 하나.
+
 $$
-w_i = 2\,\frac{\max(\hat x_i - 1, 0) + \epsilon}{\sum_j \left(\max(\hat x_j - 1, 0) + \epsilon\right)}
+w_i = 2\ \frac{\max(\hat x_i - 1, 0) + \epsilon}{\sum_j \left(\max(\hat x_j - 1, 0) + \epsilon\right)}
 $$
+
 - $x_i = J_{c_i}/d_i$ (§2.2의 정규화 cost, cost $i$가 budget의 몇 배인지). 학습 중에는 진짜 $J_{c_i}$를 모르므로 dual step(§2.6)과 같은 batch 추정치 $\hat x_i$ (이번 update의 4 episode 평균 cost $/ d_i$)를 쓴다.
 - 둘 다 violation이 없으면 $w = (1, 1)$ → 지금의 aggregate. 예: $\hat x = (0.7, 1.1)$이면 violation $(0, 0.1)$ → $w \approx (0, 2)$, 제약은 $2\hat x_v \le 2$. 합만 맞추는 exploit(seed 0)을 막으려는 것.
 - A와의 차이: A는 weight가 학습 전에 정해져서 고정, B는 $\lambda$처럼 weight도 feedback으로 움직임. (둘 다 on-policy. on/off-policy의 차이가 아님.)
 
-**B의 사실상의 feasible set은 multi와 같다.** 한쪽이 넘으면 weight가 그쪽으로 몰려서 $x_i \le 1$이 되므로, 결국 정사각형 $\{x_h \le 1, x_v \le 1\}$. 즉 B는 "feasible set은 multi, $\lambda$는 하나를 같이 씀".
+**B의 사실상의 feasible set은 multi와 같다.** 한쪽이 넘으면 weight가 그쪽으로 몰려서 $x_i \le 1$이 되므로, 결국 정사각형 $\lbrace x_h \le 1, x_v \le 1\rbrace$. 즉 B는 "feasible set은 multi, $\lambda$는 하나를 같이 씀".
 
 **걱정: overshoot가 multi보다 쉽게 생긴다.**
 1. **$\lambda$ 공유**: vase만 계속 violation이면 $w \approx (0, 2)$, $\lambda$는 vase 때문에 계속 커지고 hazard penalty는 거의 0. hazard에 들어가는 순간 weight가 넘어가면서 **이미 커진 $\lambda$가 hazard에 그대로 걸림** → hazard 쪽이 갑자기 over-constrained. multi는 $\lambda_i$가 따로라서 이런 일이 없다.
