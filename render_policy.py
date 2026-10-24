@@ -1,7 +1,7 @@
 """Render a trained SafetyPointGoal2 policy to mp4, one full episode per layout.
 
-    python render_policy.py runs/sg-pilot-v2-loose/aggregate_loose-s0     # run dir -> checkpoint.pt
-    python render_policy.py runs/sg-pilot-v2-loose/*/ --layouts 0 1        # same layouts for every run
+    python render_policy.py runs/spg-v2-aggregate-loose/aggregate_loose-s0     # run dir -> checkpoint.pt
+    python render_policy.py runs/spg-v2-aggregate-loose/*/ --layouts 0 1        # same layouts for every run
     python render_policy.py runs/X/checkpoint-002000000.pt --camera track
 
 Layouts follow evaluate.py: layout k is the k-th episode that
