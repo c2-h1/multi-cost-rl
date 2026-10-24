@@ -70,12 +70,38 @@ def generalized_advantage(signals, values, gamma=1.0, gae_lambda=0.95):
     return advantages, advantages + values
 
 
+def constraint_error(normalized_costs, method, target=1.0):
+    """Signed error per multiplier: x_i - target (multi); sum_i x_i - m * target (aggregate_loose); sum_i x_i - target (aggregate_conservative)."""
+    if method == "multi":
+        return normalized_costs - target
+    return normalized_costs.sum().reshape(1) - target * (len(normalized_costs) if method == "aggregate_loose" else 1)
+
+
 def update_multipliers(lambdas, normalized_costs, method, dual_lr, target=1.0):
     if method == "unconstrained":
         return torch.zeros_like(lambdas)
     violation = normalized_costs - target if method == "multi" else (
         normalized_costs.sum().reshape(1) - target * (len(normalized_costs) if method == "aggregate_loose" else 1))
     return (lambdas + dual_lr * violation).clamp(min=0)
+
+
+def pi_update(integral, normalized_costs, method, ki, kp, target=1.0):
+    """Projected PI variant with a signed proportional term (not a reproduction of a paper's code).
+
+        e[k]   = x[k] - target
+        I[k+1] = max(0, I[k] + ki * e[k])
+        lam[k+1] = max(0, I[k+1] + kp * e[k])
+
+    I and lambda are separate states: the next integral step starts from I, never from lambda.
+    With kp = 0 this equals update_multipliers with dual_lr = ki when I starts at lambda.
+    Returns (integral, lambdas, error, proportional term)."""
+    if method == "unconstrained":
+        zero = torch.zeros_like(integral)
+        return zero, zero.clone(), zero.clone(), zero.clone()
+    error = constraint_error(normalized_costs, method, target)
+    integral = (integral + ki * error).clamp(min=0)
+    proportional = kp * error
+    return integral, (integral + proportional).clamp(min=0), error, proportional
 
 
 def cost_penalty(advantages, lambdas, method):
@@ -240,6 +266,10 @@ def train(args):
     lambdas = torch.full((len(env.cost_names) if args.method == "multi" else 1,), args.lambda_init, device=device)
     if args.method == "unconstrained":
         lambdas.zero_()
+    # PI controller: I and lambda both start at lambda_init (use --lambda-init 0 for I = lambda = 0).
+    integral = lambdas.clone()
+    dual_ki = args.dual_lr if args.dual_ki is None else args.dual_ki
+    checkpoint_steps = sorted(set(args.checkpoint_steps or []))
     config = vars(args).copy()
     config.update({"cost_names": list(env.cost_names), "budgets": env.budgets.tolist(),
                    "python": platform.python_version(), "torch": torch.__version__,
@@ -327,7 +357,11 @@ def train(args):
             if stop:
                 break
         normalized = torch.as_tensor((batch["costs"] / env.budgets).mean(0), device=device)
-        lambdas = update_multipliers(lambdas, normalized, args.method, args.dual_lr, args.constraint_target)
+        if args.dual_controller == "pi":
+            integral, lambdas, error, proportional = pi_update(integral, normalized, args.method, dual_ki,
+                                                               args.dual_kp, args.constraint_target)
+        else:
+            lambdas = update_multipliers(lambdas, normalized, args.method, args.dual_lr, args.constraint_target)
         cumulative_cost += batch["costs"].sum(0)
         cumulative_excess += np.maximum(batch["costs"] - env.budgets, 0).sum(0)
         metrics = {"update": update, "env_steps": update * count,
@@ -338,6 +372,12 @@ def train(args):
                    **summarize_rollout(batch, env, "train")}
         for i, value in enumerate(lambdas):
             metrics[f"dual/lambda_{i}"] = float(value)
+        if args.dual_controller == "pi":
+            metrics.update({"dual/ki": dual_ki, "dual/kp": args.dual_kp})
+            for i in range(len(lambdas)):
+                metrics[f"dual/error_{i}"] = float(error[i])
+                metrics[f"dual/integral_{i}"] = float(integral[i])
+                metrics[f"dual/proportional_{i}"] = float(proportional[i])
         for i, name in enumerate(env.cost_names):
             metrics[f"train/cumulative_cost_{name}"] = float(cumulative_cost[i])
             metrics[f"train/cumulative_episode_excess_{name}"] = float(cumulative_excess[i])
@@ -360,9 +400,14 @@ def train(args):
             metrics.update(summarize_rollout(evaluated, env, "eval"))
         if update % args.log_every == 0 or update % args.eval_every == 0 or update == args.updates:
             emit(metrics)
-        if update % args.checkpoint_every == 0 or update == args.updates:
+        # --checkpoint-steps: the first update whose env_steps reaches each listed value.
+        at_listed_step = any((update - 1) * count < s <= update * count for s in checkpoint_steps)
+        if update % args.checkpoint_every == 0 or update == args.updates or at_listed_step:
             state = {"model": model.state_dict(), "optimizer": optimizer.state_dict(),
                      "multipliers": lambdas, "config": config, "update": update, "env_steps": update * count}
+            if args.dual_controller == "pi":
+                state["dual_controller"] = {"type": "pi", "ki": dual_ki, "kp": args.dual_kp, "kd": 0.0,
+                                            "integral": integral.clone(), "lambdas": lambdas.clone()}
             # Step-specific copies keep a common earlier checkpoint for matched-budget comparison.
             torch.save(state, output / f"checkpoint-{update * count:09d}.pt")
             torch.save(state, output / "checkpoint.pt")
@@ -410,6 +455,10 @@ def parser():
     p.add_argument("--constraint-target", type=float, default=1.0,
                    help="Training threshold as fraction of reported budgets; <1 is an explicit safety margin")
     p.add_argument("--lambda-init", type=float, default=0.1)
+    p.add_argument("--dual-controller", choices=("integral", "pi"), default="integral",
+                   help="integral: lambda += dual_lr * error (default, unchanged). pi: see pi_update")
+    p.add_argument("--dual-ki", type=float, default=None, help="PI integral gain (default: --dual-lr)")
+    p.add_argument("--dual-kp", type=float, default=0.0, help="PI proportional gain on the signed error")
     p.add_argument("--gae-lambda", type=float, default=0.95)
     p.add_argument("--clip", type=float, default=0.2)
     p.add_argument("--target-kl", type=float, default=0.03)
@@ -423,6 +472,8 @@ def parser():
     p.add_argument("--eval-num-envs", type=int, default=2,
                    help="maximum evaluation simulators alive at once")
     p.add_argument("--checkpoint-every", type=int, default=100)
+    p.add_argument("--checkpoint-steps", type=int, nargs="*", default=None,
+                   help="also save at the first update reaching each of these env steps")
     p.add_argument("--log-every", type=int, default=10)
     p.add_argument("--wandb-mode", choices=("online", "offline", "disabled"), default="offline")
     p.add_argument("--project", default="multi-cost-rl")
@@ -451,6 +502,8 @@ def parse_args(argv=None):
 
 if __name__ == "__main__":
     args = parse_args()
+    if args.dual_controller == "integral" and (args.dual_ki is not None or args.dual_kp != 0):
+        raise ValueError("--dual-ki/--dual-kp need --dual-controller pi")
     if not 0 < args.constraint_target <= 1:
         raise ValueError("constraint-target must be in (0, 1]")
     if args.env == "safety" and (args.budget_hazard is None or args.budget_vase is None):

@@ -5,7 +5,7 @@ import torch
 
 from toy_env import TwoCostNavigation
 from baseline_ppo import rollout_geometry
-from train import ActorCritic, collect, generalized_advantage, update_multipliers, combine_advantages, parse_args
+from train import ActorCritic, collect, generalized_advantage, update_multipliers, pi_update, combine_advantages, parse_args
 
 import importlib.util
 import json
@@ -45,6 +45,48 @@ class CoreTests(unittest.TestCase):
         # (0.5, 0.5): every positive multiplier falls.
         self.assertTrue(bool((update_multipliers(torch.tensor([0.1, 0.1]), torch.tensor([.5, .5]), "multi", .02) < .1).all()))
         self.assertLess(float(update_multipliers(torch.tensor([0.1]), torch.tensor([.5, .5]), "aggregate_loose", .02)[0]), .1)
+
+    def test_pi_with_zero_kp_matches_integral_update(self):
+        # Random sequence with positive and negative errors and hits on the zero boundary.
+        g = torch.Generator().manual_seed(0)
+        for method, size in (("multi", 2), ("aggregate_loose", 1), ("aggregate_conservative", 1)):
+            lam = torch.full((size,), 0.1)
+            integral = lam.clone()
+            for _ in range(500):
+                x = torch.rand(2, generator=g) * 3
+                lam = update_multipliers(lam, x, method, .04)
+                integral, pi_lam, _, p_term = pi_update(integral, x, method, .04, 0.)
+                torch.testing.assert_close(pi_lam, lam, rtol=0, atol=0)
+                torch.testing.assert_close(integral, lam, rtol=0, atol=0)
+                self.assertTrue(bool((p_term == 0).all()))
+
+    def test_pi_signs_projection_and_separate_integral_state(self):
+        zero = torch.zeros(2)
+        # Positive error (1.5 - 1) on hazard, negative (0.5 - 1) on vase, from I = lambda = 0.
+        integral, lam, error, p_term = pi_update(zero, torch.tensor([1.5, .5]), "multi", .02, 4.)
+        torch.testing.assert_close(error, torch.tensor([.5, -.5]))
+        torch.testing.assert_close(integral, torch.tensor([.01, 0.]))      # vase integral clipped at 0
+        torch.testing.assert_close(p_term, torch.tensor([2., -2.]))
+        torch.testing.assert_close(lam, torch.tensor([2.01, 0.]))          # lambda clipped at 0
+        # Next step starts from I (0.01), not from lambda (2.01).
+        integral2, lam2, _, _ = pi_update(integral, torch.tensor([.9, 1.]), "multi", .02, 4.)
+        torch.testing.assert_close(integral2, torch.tensor([.008, 0.]))
+        torch.testing.assert_close(lam2, torch.tensor([0., 0.]))           # 0.008 - 0.4 < 0 -> 0, I kept
+        # A negative proportional term can zero lambda while I stays positive and recovers it later.
+        integral3, lam3, _, _ = pi_update(torch.tensor([1., 1.]), torch.tensor([.5, 1.]), "multi", .02, 4.)
+        torch.testing.assert_close(integral3, torch.tensor([.99, 1.]))
+        torch.testing.assert_close(lam3, torch.tensor([0., 1.]))
+        # Exactly on target: no change.
+        integral4, lam4, _, _ = pi_update(torch.tensor([.3, .3]), torch.tensor([1., 1.]), "multi", .02, 4.)
+        torch.testing.assert_close(lam4, torch.tensor([.3, .3]))
+
+    def test_pi_flags_require_pi_controller(self):
+        args = parse_args(["--output", "x", "--dual-controller", "pi", "--dual-ki", ".02", "--dual-kp", "4",
+                           "--checkpoint-steps", "3000000", "4250000"])
+        self.assertEqual((args.dual_controller, args.dual_ki, args.dual_kp), ("pi", .02, 4.))
+        self.assertEqual(args.checkpoint_steps, [3000000, 4250000])
+        default = parse_args(["--output", "x"])
+        self.assertEqual((default.dual_controller, default.dual_ki, default.dual_kp), ("integral", None, 0.))
 
     def test_native_feasibility_differs_from_per_cost_budgets(self):
         budgets = [31.9, 73.9]
