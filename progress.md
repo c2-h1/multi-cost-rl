@@ -442,10 +442,12 @@ for update in 1..1250:      # E10: 5M step (E4는 500 = 2M)
 
 0. **E10 완료 (10/24)** → §3.4, `reports/spg-v2/`. 이름 변경도 끝남: `runs/spg-v2-aggregate-loose/`, `runs/spg-v2-multi/`, `runs/spg-v2.sh`, `configs/safety/spg-v2.json`. 각 run의 `config.json`, `manifest.json` 안의 옛 group 이름(`sg-pilot-v2-*`)은 기록이라 그대로 둠. W&B group은 `spg-v2-aggregate-loose`, `spg-v2-multi`.
    - **영상**: `nice -n 19 python render_policy.py runs/spg-v2-aggregate-loose/*/ runs/spg-v2-multi/*/` (각 run의 최신 `checkpoint.pt`, episode 1개에 약 1분). E4에서 aggregate가 hazard/vase를 과하게 피하던 모습이 E10에서도 남아 있는지 확인용.
-1. **진동 줄이기 (다음 실험 후보)**: step만 늘리는 것보다 dual update를 감쇠시키는 게 먼저.
-   - PID Lagrangian (Stooke et al., 2020): violation의 변화율(D)과 비례항(P)을 더해 overshoot을 줄임. `train.py`에 flag로 추가하고 기본값은 지금과 같게.
-   - 또는 첫 peak 이후 dual lr을 줄이기, 마지막 N개 checkpoint 평균으로 보고.
-   - 결정 필요: 어느 것을 먼저 할지 (§6).
+1. **E11 PI Lagrangian 실행 중 (10/24 22:54 시작, 약 29시간)**: multi만, seed 0/1/2, 5M step, I = λ = 0에서 시작.
+   - A: $K_I$ 0.04 (E10과 같은 gain), B: $K_I$ 0.02, C: $K_I$ 0.02 + $K_P$ 1, D: $K_I$ 0.02 + $K_P$ 4. A→B는 integral gain 효과, B→C/D는 proportional 항 효과.
+   - 식: $e = x - 1$, $I \leftarrow \max(0, I + K_I e)$, $\lambda = \max(0, I + K_P e)$ (`--dual-controller pi`). 논문 구현 재현이 아니라 signed P항을 쓴 projected PI 변형.
+   - E10 multi는 재사용 안 함 (λ₀ = 0.1이었고 4.25M/4.75M checkpoint, controller 로그가 없음) → A도 새로 돌림, 12 runs.
+   - 끝나면: 4.0–5.0M checkpoint를 validation 200 episodes (env seed 700000)로 평가 → 조건 선택 → 그다음에만 held-out 500 episodes (env seed 950000)로 A, B, 선택된 PI 비교. 보고서: `reports/spg-v2-pi/README.md`, 분석: `python scripts/analyze_pi.py --output reports/spg-v2-pi`.
+   - 확인: tmux `spg-v2-pi`, `runs/spg-v2-pi.log`, W&B group `spg-v2-pi-*`.
 2. **랩미팅**: 해석 B 상의 (§6).
 3. **`spg-v2`를 `main`에 merge** (GitHub PR). 아직 안 함.
 4. GitHub의 PR #1이 자동으로 닫혔는지 확인 (`gh`가 없어서 여기서는 확인 못 함).
