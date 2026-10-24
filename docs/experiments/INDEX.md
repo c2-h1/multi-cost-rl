@@ -28,6 +28,7 @@ The lab-meeting notes number the stages differently: Task 1 = E1, Task 2 = E2, T
 | E8 | pi0-weights | (dropped 2026-10-23: weights from the untrained policy; not the professor's suggestion) | dropped | — | tag `archive/pi0-weights` | — | — |
 | E9 | hierarchical / priority safe RL | How to prioritize constraints that cannot all be met (CSED499II topic) | planned | — | — | — | notes p. 9 |
 | E10 | spg-v2 | E4 at 5M steps; multi dual lr 0.04, aggregate_loose 0.02. Do both converge? | completed 2026-10-24 (both at budget, not converged) | `configs/safety/spg-v2.json` | spg-v2 fe872d5 / b0441c0 | `runs/spg-v2-aggregate-loose/`, `runs/spg-v2-multi/` (lab machine), W&B groups `spg-v2-*` | `reports/spg-v2/` |
+| E11 | spg-v2-pi | multi: does K_I 0.04 → 0.02, and a proportional term (K_P 1, 4), reduce the multiplier oscillation? | running (started 2026-10-24) | `configs/safety/spg-v2-pi.json` | spg-v2 f3dd700 | `runs/spg-v2-pi-*/` (lab machine), W&B groups `spg-v2-pi-*` | — |
 
 ## Dual learning rate: which value was used where
 
@@ -43,6 +44,7 @@ in the toy experiment; every Safety Gym launcher overrides it.
 | E7 humanoid | 0.02 | report §4 |
 | E6 hparam search | unknown | — |
 | E10 | multi 0.04, aggregate_loose 0.02 | config |
+| E11 | multi, PI controller: K_I 0.04 or 0.02, K_P 0 / 1 / 4 | config |
 
 Saved `config.json` files for E3–E5 were not available to confirm this directly.
 
@@ -104,6 +106,17 @@ multiplier did not help. Next: reward-only walking at the native horizon first, 
   (damped oscillation): **not converged**. No method difference established.
 - **Next:** damp the dual (PID Lagrangian or lower dual lr after the peak), more seeds and
   held-out episodes, matched feasible sets, interpretation B.
+
+## E11 spg-v2-pi (running)
+- **Why:** E10's multipliers oscillated slowly (peak 2–2.5M steps, still moving at 5M).
+- **Conditions (multi only, seeds 0/1/2, 5M steps, I = λ = 0 at start):** A K_I 0.04 (E10's gain),
+  B K_I 0.02, C K_I 0.02 + K_P 1, D K_I 0.02 + K_P 4. Projected PI with a signed proportional
+  error (`train.py pi_update`), not a reproduction of a paper's code. A→B = integral gain effect,
+  B→C/D = proportional term effect.
+- **Baseline reuse:** none. E10 multi started at λ = 0.1, lacks 4.25M / 4.75M checkpoints and the
+  controller logs, so A is rerun (12 runs, 60M steps).
+- **Evaluation:** validation 200 episodes (env 700000, action 700001, chunk 10) on the 4.0–5.0M
+  checkpoints; held-out 500 episodes (env 950000, action 950001) only after selecting on validation.
 
 ## E9 hierarchical / priority safe RL (planned)
 CSED499II topic: priorities among constraints that cannot all be met (people > expensive

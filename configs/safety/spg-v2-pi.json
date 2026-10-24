@@ -1,0 +1,29 @@
+{
+  "id": "E11", "name": "spg-v2-pi: projected PI multipliers for multi", "status": "planned",
+  "extends": "base.json",
+  "question": "(1) Does lowering multi's integral gain 0.04 -> 0.02 reduce the multiplier oscillation seen in E10? (2) At K_I = 0.02, what does adding a proportional term (K_P = 1, 4) change?",
+  "controller": "Projected PI variant with a signed proportional error (train.py pi_update), not a reproduction of a paper's implementation. Per cost i, rollout k: e_i[k] = mean_episode_cost_i[k] / budget_i - 1; I_i[k+1] = max(0, I_i[k] + K_I e_i[k]); lambda_i[k+1] = max(0, I_i[k+1] + K_P e_i[k]); I_i[0] = lambda_i[0] = 0. Rollout k's PPO update uses lambda[k]. No D term, cost EMA, lambda cap or gain decay. K_P = 0 equals the integral update (unit test + toy bit-identity).",
+  "methods": ["multi"],
+  "conditions": {
+    "A": {"group": "spg-v2-pi-a-ki04", "dual_ki": 0.04, "dual_kp": 0, "role": "E10 multi baseline gain, rerun with I = lambda = 0"},
+    "B": {"group": "spg-v2-pi-b-ki02", "dual_ki": 0.02, "dual_kp": 0, "role": "slower integral"},
+    "C": {"group": "spg-v2-pi-c-ki02-kp1", "dual_ki": 0.02, "dual_kp": 1, "role": "weak PI"},
+    "D": {"group": "spg-v2-pi-d-ki02-kp4", "dual_ki": 0.02, "dual_kp": 4, "role": "strong PI"}
+  },
+  "baseline_reuse": "E10 multi (dual lr 0.04) is NOT reused: it started at lambda = 0.1 (this experiment: I = lambda = 0), has no 4.25M / 4.75M checkpoints, and did not log the controller state. A is rerun.",
+  "seeds": {"train": [0, 1, 2]},
+  "train_args": {"updates": 1250, "budget_hazard": 31.9, "budget_vase": 73.9, "device": "cpu", "threads": 2,
+                 "eval_num_envs": 2, "lambda_init": 0.0, "dual_controller": "pi",
+                 "checkpoint_steps": [3000000, 3500000, 4000000, 4250000, 4500000, 4750000, 5000000]},
+  "steps_per_run": 5000000,
+  "checkpoints": "every 25 updates (as E10) plus the first update reaching each listed step: 4.25M -> update 1063 (4,252,000 steps), 4.75M -> update 1188 (4,752,000)",
+  "evaluation": {
+    "checkpoint_eval": "as E10: 10 episodes, environment seed 10000+seed, every 25 updates, chunk 2 (training RNG restored)",
+    "validation": "after training, separate process: checkpoints 4.0M, 4.252M, 4.5M, 4.752M, 5.0M, evaluate.py --episodes 200 --environment-seed 700000 --action-seed 700001 --eval-num-envs 10, stochastic; same layouts and action seed for every condition",
+    "heldout": "only after a condition is selected on validation: final 5M checkpoint, evaluate.py --episodes 500 --environment-seed 950000 --action-seed 950001 --eval-num-envs 10, for A, B and the selected PI condition (all on the same layouts)",
+    "seed_disjointness": "layout seeds come from np.random.default_rng(environment_seed + chunk_start): validation uses 700000..700190, held-out 950000..950490, E4/E10 held-out 900000..900040, training 0..2, checkpoint eval 10000..10010, final eval 200000..200050"
+  },
+  "commands": "runs/spg-v2-pi.sh",
+  "output": "runs/spg-v2-pi-*/ on the lab machine tml; W&B groups = condition groups",
+  "report": "reports/spg-v2-pi/README.md"
+}
