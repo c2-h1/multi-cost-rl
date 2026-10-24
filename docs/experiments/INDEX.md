@@ -27,7 +27,7 @@ The lab-meeting notes number the stages differently: Task 1 = E1, Task 2 = E2, T
 | E7 | humanoid-pilot | Can the multi-cost trainer run on HumanoidBench H1? | failed (no walking) | `configs/humanoid/humanoid-pilot.json` | 4ac4491 | W&B run `jfn5p0c9` | `reports/2026-09-21-training-report.md` §4 |
 | E8 | pi0-weights | (dropped 2026-10-23: weights from the untrained policy; not the professor's suggestion) | dropped | — | tag `archive/pi0-weights` | — | — |
 | E9 | hierarchical / priority safe RL | How to prioritize constraints that cannot all be met (CSED499II topic) | planned | — | — | — | notes p. 9 |
-| E10 | sg-pilot-v2 | E4 at 5M steps; multi dual lr 0.04, aggregate_loose 0.02. Do both converge? | running (started 2026-10-23) | `configs/safety/sg-pilot-v2.json` | spg-v2 afe85f2 / ac53cc6 | `runs/sg-pilot-v2-loose/`, `runs/sg-pilot-v2-multi/` (lab machine) | — |
+| E10 | spg-v2 | E4 at 5M steps; multi dual lr 0.04, aggregate_loose 0.02. Do both converge? | completed 2026-10-24 (both at budget, not converged) | `configs/safety/spg-v2.json` | spg-v2 fe872d5 / b0441c0 | `runs/spg-v2-aggregate-loose/`, `runs/spg-v2-multi/` (lab machine), W&B groups `spg-v2-*` | `reports/spg-v2/` |
 
 ## Dual learning rate: which value was used where
 
@@ -90,16 +90,20 @@ h1-walk-v0, 3 costs (fall risk, joint limit, actuator load), horizon 256, 300 up
 The robot fell in every episode (physical steps 21.8% of scheduled); raising the fall-risk
 multiplier did not help. Next: reward-only walking at the native horizon first, or a pretrained policy.
 
-## E10 sg-pilot-v2 (running)
-- **Why:** E4 did not converge in 2M steps (λ still rising). Follows interpretation A of the
-  professor's suggestion: fixed weights 1/d_i, x_h + x_v ≤ 2. Interpretation B (weights that follow
-  the violation) is open for the next lab meeting.
+## E10 spg-v2 (completed 2026-10-24)
+- **Why:** E4 did not converge in 2M steps (λ still rising). Interpretation A of the professor's
+  suggestion: fixed weights 1/d_i, x_h + x_v ≤ 2. Interpretation B is open for the next lab meeting.
 - **Setup:** aggregate_loose (dual lr 0.02) and multi (0.04) × seeds 0/1/2, 5M steps (1250 updates).
   Training evals use chunk 2; held-out uses `--eval-num-envs 10`, the same 50 layouts as E4.
-- **Code:** aggregate_loose runs at fe872d5; multi runs after the pi0 code was removed (ac53cc6),
-  verified bit-identical on toy runs.
-- **Cost:** ≈ 28 s per update on the lab machine → ≈ 12 h per run, 3 at a time, two groups in a row.
-- **Rename pending:** groups become `spg-v2-aggregate-loose` / `spg-v2-multi` after training (W&B already uses them).
+- **Code:** aggregate_loose runs at fe872d5; multi runs at b0441c0 (same Python as ac53cc6, pi0 code
+  removed, verified bit-identical on toy runs). Run directories renamed from `sg-pilot-v2-*` after training.
+- **Findings (held-out, means of 3 seeds):** aggregate_loose return 16.9, x = (0.84, 1.01);
+  multi 14.6, x = (0.88, 0.97); both sums 1.85. Both ≤ 1: aggregate_loose 2/3, multi 1/3, but the
+  per-cost standard error is 0.1–0.15, so per-seed pass/fail is within noise. aggregate_loose
+  trades costs (seed 2 x_vase 1.30). Multipliers peaked at 1.3–2.5M steps and are still moving
+  (damped oscillation): **not converged**. No method difference established.
+- **Next:** damp the dual (PID Lagrangian or lower dual lr after the peak), more seeds and
+  held-out episodes, matched feasible sets, interpretation B.
 
 ## E9 hierarchical / priority safe RL (planned)
 CSED499II topic: priorities among constraints that cannot all be met (people > expensive

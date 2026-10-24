@@ -143,7 +143,9 @@ Open work:
 - **E5 follow-ups** (multi with dual lr 0.04; aggregate_conservative): closed 2026-10-23, did not
   converge in 2M steps (run files unavailable).
 - **E6 hyperparameter search:** closed 2026-10-23; hyperparameters are chosen by hand (E10).
-- **E10 sg-pilot-v2** (running): E4's aggregate_loose (dual lr 0.02) and multi (0.04) at 5M steps.
+- **E10 spg-v2** (completed 2026-10-24, `reports/spg-v2/`): at 5M steps both aggregate_loose and multi reach the
+  budget on average (held-out sum 1.85), but the multipliers still oscillate (not converged); no method
+  difference established with 3 seeds. Next: damp the dual update (e.g. PID Lagrangian).
 - **Weighted aggregation, interpretation B** (weights that follow the violation): to discuss at the
   next lab meeting (progress.md §6).
 - **E9 hierarchical / priority-based constraints:** semester (CSED499II) topic.

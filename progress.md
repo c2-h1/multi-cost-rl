@@ -2,7 +2,7 @@
 tags: [research, safe-rl, multi-cost]
 source: "github.com/c2-h1/multi-cost-rl @ spg-v2"
 related: "[[260930]]"
-updated: 2026-10-23
+updated: 2026-10-24
 ---
 
 # Multi-cost Safe RL: SafetyPointGoal2-v0 (hazard + vase)
@@ -10,8 +10,9 @@ updated: 2026-10-23
 > **TL;DR**
 > - **질문**: safety cost를 하나로 합치지 않고 종류별(hazard, vase)로 나눠서 각각 제약을 걸면, 같은 safety 수준에서 return이 더 높아질까?
 > - **방법**: PPO + Lagrangian(primal-dual). cost를 budget으로 나눠 단위를 맞춘 뒤 ($x_i = J_{c_i}/d_i$), 하나의 $\lambda$(aggregate)와 cost별 $\lambda_i$(multi)를 비교.
-> - **지금까지 결과**: 2M step 안에 수렴하지 않음. aggregate는 overshoot 때문에 over-constrained, multi는 아직 budget violation.
-> - **이번 세션 (10/22–23)**: repo 정리(experiment index, config, CLAUDE.md), branch1 archive. 교수님 제안의 해석 A(고정 weight, 합 ≤ 2)로 **E10 실행 중**: E4를 5M step, 더 큰 dual lr로 다시. 해석 B는 다음 랩미팅에서 상의 (§6).
+> - **E4 (2M step)**: 수렴하지 않음. aggregate는 overshoot 때문에 over-constrained, multi는 아직 budget violation.
+> - **E10 (5M step, 10/24 완료)**: 두 방법 모두 평균적으로 budget에 도달 (held-out 합 1.85). 하지만 $\lambda$가 아직 천천히 진동 중 → **수렴 안 함**. seed 3개로는 방법 간 차이를 말할 수 없음 (§3.3).
+> - **이번 세션 (10/22–23)**: repo 정리(experiment index, config, CLAUDE.md), branch1 archive. 교수님 제안의 해석 A(고정 weight, 합 ≤ 2)로 E10 실행: E4를 5M step, 더 큰 dual lr로 다시. 해석 B는 다음 랩미팅에서 상의 (§6).
 
 ---
 
@@ -30,7 +31,7 @@ updated: 2026-10-23
 | E7 | HumanoidBench pilot | 실패 (생략) |
 | E8 | (취소된 실험, 번호만 남김) | 취소 |
 | E9 | hierarchical / priority safe RL (CSED499II 주제) | 계획 |
-| **E10** | E4를 5M step으로 다시 (해석 A): aggregate_loose dual lr 0.02, multi 0.04, seed 3개 | **실행 중** (10/23 시작, 약 하루) |
+| **E10** | E4를 5M step으로 다시 (해석 A): aggregate_loose dual lr 0.02, multi 0.04, seed 3개 | **완료** (10/24): budget 도달, 수렴은 안 함 (§3.3) |
 
 ---
 
@@ -171,7 +172,7 @@ $\eta$ = `dual_lr`, $\lambda_0 = 0.1$. **어떤 dual lr이 어디서 쓰였는�
 |---|---|---|
 | SafetyPointGoal2 calibration, 본 실험 (E3/E4) | **0.02** | `run_pilot.py` FROZEN, slurm 스크립트, 미팅 노트 |
 | follow-up E5a | 0.04 | branch1의 `run_followups.sh` |
-| E10 | aggregate_loose 0.02, multi **0.04** | `configs/safety/sg-pilot-v2.json` |
+| E10 | aggregate_loose 0.02, multi **0.04** | `configs/safety/spg-v2.json` |
 
 > [!TIP]
 > **직관: $\lambda$는 violation의 누적합이다 (integral controller)**
@@ -291,6 +292,39 @@ $$
 > **해석 시 주의**
 > loose(삼각형)와 multi(정사각형)는 feasible set이 달라서, 이 표만으로 "어느 쪽이 return이 높다"고 결론 내리면 안 된다. 두 방법 모두 수렴하지 않았다. 결과를 쓸 때는 항상 **native constraint 만족 여부**와 **per-cost "둘 다 ≤ 1"**을 따로 보고할 것.
 
+### 3.3 E10 결과 (5M step, 10/24 완료)
+
+보고서: [`reports/spg-v2/README.md`](reports/spg-v2/README.md) (그림 포함). held-out은 E4와 같은 50 layout. ±는 50 episode에 대한 standard error.
+
+| | return | goals/ep | $x_h$ | $x_v$ | 합 | native 만족 | 둘 다 ≤ 1인 seed |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| aggregate_loose (E10) | 16.9 | 6.6 | 0.84 | 1.01 | 1.85 | 2/3 | 2/3 |
+| multi (E10) | 14.6 | 5.9 | 0.88 | 0.97 | 1.85 | 1/3 | 1/3 |
+| aggregate_loose (E4, 2M) | 12.2 | 5.0 | 0.59 | 0.81 | 1.41 | 3/3 | 2/3 |
+| multi (E4, 2M) | 19.3 | 7.6 | 1.59 | 1.37 | 2.96 | 0/3 | 0/3 |
+
+seed별 held-out:
+
+| seed | aggregate_loose return / $x_h$ / $x_v$ | multi return / $x_h$ / $x_v$ |
+|---|---|---|
+| 0 | 16.3 / 0.83 / 0.86 | 10.4 / 0.96 / 0.66 |
+| 1 | 18.1 / 0.90 / 0.86 | 15.6 / 0.84 / 1.08 |
+| 2 | 16.2 / 0.79 / **1.30** | 17.7 / 0.85 / 1.15 |
+
+**해석**
+
+1. **두 방법 모두 budget 근처에 도달.** E4에서 aggregate는 over-constrained (return 12.2)였는데 16.9로 회복. multi는 violation (1.59 / 1.37)이었는데 0.88 / 0.97로 내려옴. 대신 return이 19.3 → 14.6 (이제 실제로 제약을 받기 때문).
+2. **수렴은 안 함: 느린 감쇠 진동.**
+   - multi의 $\lambda$는 2.1–2.5M step에서 8–11로 peak → 그 사이 cost가 budget보다 훨씬 아래로 내려감 (seed 2: 3M step 근처에서 합 0.84, return 7.8 = **overshoot**) → $\lambda$가 다시 내려오는 중.
+   - multi seed 2의 $\lambda_h$는 끝에 0이 됨 → hazard cost가 다시 올라갈 것.
+   - aggregate_loose도 1.3–1.8M step에 peak (4.5–6.6) 후 내려오는 중, seed 1은 끝에서 다시 상승.
+   - §2.6의 integral controller 그대로: $\lambda$는 violation이 쌓여야 움직이고, policy는 늦게 반응하니 계속 지나친다. E4는 2M에서 멈춰서 peak 직전 상태만 본 것.
+3. **aggregate_loose의 trade-off (exploit).** 학습 마지막 250 update 평균에서 seed 1은 $x_h = 1.17$, seed 2는 $x_v = 1.11$, 합은 약 2. held-out seed 2는 $x_v = 1.30$ (1보다 2.3 SE 위). 합만 맞추면 되니 한 cost를 다른 cost로 메우는 것. multi는 학습 평균에서 모든 seed가 둘 다 ≈ 1 이하.
+4. **어느 방법이 낫다고 말할 수 없음.**
+   - return 평균은 aggregate가 높지만 (16.9 vs 14.6), 차이의 대부분은 multi seed 0 (10.4, 아직 $\lambda \approx 6.6/5.0$)에서 옴.
+   - seed 3개, $\lambda$가 아직 움직이는 중, feasible set도 다름 (삼각형 vs 정사각형).
+5. **seed별 held-out pass/fail은 노이즈 수준.** 50 episode로는 $x_i$의 SE가 0.1–0.15. 1.08, 1.15는 1과 구분되지 않는다.
+
 ---
 
 ## 4. 코드 구조 (`spg-v2` branch 기준)
@@ -313,10 +347,11 @@ $$
 | 위치 | 내용 |
 |---|---|
 | `docs/experiments/INDEX.md` | **실험 목록 E1–E10**: 질문, 상태, config, 어느 코드(commit/branch)로 돌렸는지, 결과 위치, 근거(code / report / notes). 모르는 것은 unknown으로 둠 |
-| `configs/safety/*.json` | 실험마다 JSON 하나. `base.json`(FROZEN 설정) + `extends`로 차이만. 확인 못 한 값은 `unknown`. SafetyPointGoal2 관련: `sg-calibration`(E3), `sg-pilot-v1`(E4), `sg-pilot-v1-duallr004`(E5a), `sg-pilot-v1-conservative`(E5b), `sg-pilot-v2`(E10) |
+| `configs/safety/*.json` | 실험마다 JSON 하나. `base.json`(FROZEN 설정) + `extends`로 차이만. 확인 못 한 값은 `unknown`. SafetyPointGoal2 관련: `sg-calibration`(E3), `sg-pilot-v1`(E4), `sg-pilot-v1-duallr004`(E5a), `sg-pilot-v1-conservative`(E5b), `spg-v2`(E10) |
 | `train.py --config X.json --experiment-id ...` | config의 `train_args`가 기본값이 되고 CLI flag가 덮어씀. 모르는 key가 있으면 에러 |
 | run의 `config.json` | 이제 git commit/branch/dirty, 사용한 experiment config, evaluation protocol(eval seed, chunk)까지 저장 |
 | `reports/sg-pilot-v1/` | 미팅 노트에서 옮긴 E4 결과 요약 |
+| `reports/spg-v2/` | E10 결과: 표, 학습 곡선, held-out scatter (`scripts/plot_runs.py`로 다시 그림) |
 | `docs/2026-09-30-lab-meeting.pdf` | 260930 미팅 노트 |
 | `CLAUDE.md` | 앞으로 coding agent가 지킬 규칙 (기존 baseline을 몰래 바꾸지 않기, 새 기능은 flag 뒤에, chunk 크기 고정, 결과 삭제 금지, commit 전 pytest 등) |
 | `README.md`, `PLAN.md` | 다시 씀 / 현재 상태 추가 |
@@ -353,21 +388,17 @@ for update in 1..1250:      # E10: 5M step (E4는 500 = 2M)
 
 ## 5. 남은 일 (구체적으로)
 
-0. **E10 실행 중** (tmux `sg-pilot-v2`, `runs/sg-pilot-v2.sh`): aggregate_loose 3개 (약 12h) → multi 3개 (약 12h) → held-out 평가(E4와 같은 50 layout, `--eval-num-envs 10`) → `runs/sg-pilot-v2-summary.md`. 진행 확인: `tail -n1 runs/sg-pilot-v2-*/*.log | cut -c1-200`, `python scripts/summarize_runs.py --root runs/sg-pilot-v2-loose`. 끝나면 볼 것: $\lambda$가 평평해졌는지(`lambda_change_last_quarter`), aggregate가 여전히 over-constrained인지, multi가 둘 다 ≤ 1이 되는지.
-   - **W&B**: tmux `wandb-tail`이 `metrics.jsonl`을 60초마다 업로드. project `multi-cost-rl`, group `spg-v2-aggregate-loose`, `spg-v2-multi` (W&B 쪽은 이미 새 이름).
-   - [ ] **TODO (E10이 모두 끝난 뒤) 이름 변경 `sg-pilot-v2` → `spg-v2`**. 조건: tmux `sg-pilot-v2`에 "all done", tmux `wandb-tail`이 종료됨. 학습 중에는 절대 옮기지 말 것.
-     1. `mv runs/sg-pilot-v2-loose runs/spg-v2-aggregate-loose`, `mv runs/sg-pilot-v2-multi runs/spg-v2-multi`
-     2. `mv runs/sg-pilot-v2.sh runs/spg-v2.sh` (`.out`도), 표 다시 만들기: `python scripts/summarize_runs.py --root runs --output runs/spg-v2-summary.md`
-     3. `git mv configs/safety/sg-pilot-v2.json configs/safety/spg-v2.json`, 안의 name/commands/output 수정. `docs/experiments/INDEX.md`, 이 문서도 수정 → commit
-     4. 각 run의 `config.json`, `manifest.json` 안의 옛 group 이름은 기록이므로 **고치지 않음** (config에 "renamed from sg-pilot-v2-*" 메모만)
-
-1. **E10 결과 정리**: 끝나면 held-out 결과로 `reports/spg-v2/README.md` 작성, INDEX 업데이트. E4와 같은 표(§3.2) 형식으로 비교.
+0. **E10 완료 (10/24)** → §3.3, `reports/spg-v2/`. 이름 변경도 끝남: `runs/spg-v2-aggregate-loose/`, `runs/spg-v2-multi/`, `runs/spg-v2.sh`, `configs/safety/spg-v2.json`. 각 run의 `config.json`, `manifest.json` 안의 옛 group 이름(`sg-pilot-v2-*`)은 기록이라 그대로 둠. W&B group은 `spg-v2-aggregate-loose`, `spg-v2-multi`.
+1. **진동 줄이기 (다음 실험 후보)**: step만 늘리는 것보다 dual update를 감쇠시키는 게 먼저.
+   - PID Lagrangian (Stooke et al., 2020): violation의 변화율(D)과 비례항(P)을 더해 overshoot을 줄임. `train.py`에 flag로 추가하고 기본값은 지금과 같게.
+   - 또는 첫 peak 이후 dual lr을 줄이기, 마지막 N개 checkpoint 평균으로 보고.
+   - 결정 필요: 어느 것을 먼저 할지 (§6).
 2. **랩미팅**: 해석 B 상의 (§6).
 3. **`spg-v2`를 `main`에 merge** (GitHub PR). 아직 안 함.
 4. GitHub의 PR #1이 자동으로 닫혔는지 확인 (`gh`가 없어서 여기서는 확인 못 함).
 5. 미팅 노트의 개선 항목:
-   - [x] step 수 2M → 5M (E10, 실행 중)
-   - [ ] seed 5개 이상 (tuning seed와 최종 보고 seed는 분리)
+   - [x] step 수 2M → 5M (E10 완료: budget 도달, 수렴 안 함)
+   - [ ] seed 5개 이상 (tuning seed와 최종 보고 seed는 분리), held-out 200 episode 이상 (E10에서 SE가 0.1–0.15라 판정 불가)
    - [ ] budget sweep ($d_i$를 여러 배율로)으로 **return vs. joint pass rate** 곡선 비교 (feasible set을 맞춘 공정한 비교)
 
 ---
@@ -412,7 +443,8 @@ $$
 3. "합이 2"는 $\sum w_i = 2$ (weight의 합)인지, $\sum x_i \le 2$ (제약의 오른쪽)인지?
 
 ### 그 외 선택
-- E10 결과를 보고: 5M에서도 수렴하지 않으면 10M으로 늘릴지, dual lr을 더 키울지, PID Lagrangian을 넣을지.
+- **E10 다음 (5M에서도 수렴 안 함)**: 추천은 PID Lagrangian. 이유: 문제는 속도가 아니라 overshoot과 진동이라서, dual lr을 더 키우면 진동이 커지고 10M으로 늘리면 하루 이상 걸리면서 진동만 더 본다.
+  - 선택지: (a) PID Lagrangian, (b) peak 후 dual lr 감소, (c) 10M step, (d) 그대로 두고 seed/episode 수만 늘리기.
 - 앞으로의 eval chunk: E4와 비교하려면 10.
 
 ---

@@ -89,14 +89,14 @@ python evaluate.py runs/<group>/<method>-s<seed>/checkpoint.pt --episodes 50 \
 2. Add `configs/<area>/<name>.json` with `"extends": "base.json"` and only what differs.
 3. Launch through the existing tools, e.g. E10 (multi part):
    ```bash
-   python run_pilot.py --group sg-pilot-v2-multi --methods multi --budget-hazard 31.9 --budget-vase 73.9 \
+   python run_pilot.py --group spg-v2-multi --methods multi --budget-hazard 31.9 --budget-vase 73.9 \
      --transitions 5000000 --device cpu --max-parallel 3 --extra "--dual-lr 0.04"
    ```
 4. When done, write a short `reports/<name>/README.md` and update the index.
 
 ## Results
 
-- Curated: `reports/` (toy comparison, humanoid pilot, paper repro, sg-pilot-v1).
+- Curated: `reports/` (toy comparison, humanoid pilot, paper repro, sg-pilot-v1, spg-v2).
 - Regenerate tables from raw runs: `python scripts/summarize_runs.py [--root runs/<group>] [--output reports/<group>/runs.md]`.
   It reports status, steps, return, x_i, native feasibility vs. both ≤ 1, final λ, and λ drift.
 - Paper comparison: `python compare_paper.py --root runs/paper-repro-safe`.
