@@ -11,7 +11,7 @@ updated: 2026-10-24
 > - **질문**: safety cost를 하나로 합치지 않고 종류별(hazard, vase)로 나눠서 각각 제약을 걸면, 같은 safety 수준에서 return이 더 높아질까?
 > - **방법**: PPO + Lagrangian(primal-dual). cost를 budget으로 나눠 단위를 맞춘 뒤 ($x_i = J_{c_i}/d_i$), 하나의 $\lambda$(aggregate)와 cost별 $\lambda_i$(multi)를 비교.
 > - **E4 (2M step)**: 수렴하지 않음. aggregate는 overshoot 때문에 over-constrained, multi는 아직 budget violation.
-> - **E10 (5M step, 10/24 완료)**: 두 방법 모두 평균적으로 budget에 도달 (held-out 합 1.85). 하지만 $\lambda$가 아직 천천히 진동 중 → **수렴 안 함**. seed 3개로는 방법 간 차이를 말할 수 없음 (§3.3).
+> - **E10 (5M step, 10/24 완료)**: 두 방법 모두 평균적으로 budget에 도달 (held-out 합 1.85). 하지만 $\lambda$가 아직 천천히 진동 중 → **수렴 안 함**. seed 3개로는 방법 간 차이를 말할 수 없음 (§3.4).
 > - **이번 세션 (10/22–23)**: repo 정리(experiment index, config, CLAUDE.md), branch1 archive. 교수님 제안의 해석 A(고정 weight, 합 ≤ 2)로 E10 실행: E4를 5M step, 더 큰 dual lr로 다시. 해석 B는 다음 랩미팅에서 상의 (§6).
 
 ---
@@ -31,7 +31,7 @@ updated: 2026-10-24
 | E7 | HumanoidBench pilot | 실패 (생략) |
 | E8 | (취소된 실험, 번호만 남김) | 취소 |
 | E9 | hierarchical / priority safe RL (CSED499II 주제) | 계획 |
-| **E10** | E4를 5M step으로 다시 (해석 A): aggregate_loose dual lr 0.02, multi 0.04, seed 3개 | **완료** (10/24): budget 도달, 수렴은 안 함 (§3.3) |
+| **E10** | E4를 5M step으로 다시 (해석 A): aggregate_loose dual lr 0.02, multi 0.04, seed 3개 | **완료** (10/24): budget 도달, 수렴은 안 함 (§3.4) |
 
 ---
 
@@ -292,7 +292,58 @@ $$
 > **해석 시 주의**
 > loose(삼각형)와 multi(정사각형)는 feasible set이 달라서, 이 표만으로 "어느 쪽이 return이 높다"고 결론 내리면 안 된다. 두 방법 모두 수렴하지 않았다. 결과를 쓸 때는 항상 **native constraint 만족 여부**와 **per-cost "둘 다 ≤ 1"**을 따로 보고할 것.
 
-### 3.3 E10 결과 (5M step, 10/24 완료)
+### 3.3 E10 실험 규모 (숫자로)
+
+출처: `configs/safety/spg-v2.json`, `configs/safety/base.json`, `run_pilot.py`, `train.py`. 서버에서 확인하려면 `runs/spg-v2-*/manifest.json`, 각 run의 `config.json`.
+
+**한 run (method 1개 × seed 1개)**
+
+| 항목 | 값 | 계산 |
+|---|---:|---|
+| episode 길이 (trajectory) | 1000 step | 고정 horizon, 중간 reset 없음 |
+| update 1번의 batch | **episode 4개 = 4,000 transition** | `num_envs` 4 × 1000 step. 4개 env가 서로 다른 random layout |
+| update 횟수 | **1,250** | 5M / 4,000 |
+| 학습 episode 총수 | **5,000** | 1,250 × 4 |
+| 학습 transition 총수 | **5,000,000** | |
+| PPO gradient step / update | 최대 48 | 6 epoch × 8 minibatch (4,000 / 512 = 7개 + 나머지 416개 1개). KL > 0.03이면 그 자리에서 중단 |
+| PPO gradient step 총수 | 최대 60,000 | |
+| $\lambda$ 업데이트 | 1,250번 | update마다 1번, 그 batch 4 episode의 평균 cost로 |
+| 중간 eval | 51번 × 10 episode | 시작 시 1번 + 25 update(100K step)마다. 매번 **같은 10개 layout** (env seed 10000+seed, chunk 2) |
+| final eval | 50 episode × 2 | stochastic, deterministic. env seed 200000+seed |
+| held-out eval (끝난 뒤) | 50 episode | env seed 900000, chunk 10. **E4와 같은 50개 layout**. 최종 결론은 이것 |
+| checkpoint | 25 update마다 | `checkpoint-{step}.pt` + 최신 `checkpoint.pt` |
+
+**실험 전체**
+
+| 항목 | 값 |
+|---|---|
+| method | `aggregate_loose` (dual lr 0.02), `multi` (dual lr 0.04) |
+| seed | 0, 1, 2 |
+| run 수 | 2 × 3 = 6 |
+| 학습 transition 총합 | 30M (6 × 5M) |
+| 실행 방식 | `run_pilot.py --device cpu --max-parallel 3`: loose 3개 동시 → 끝나면 multi 3개 동시. tmux `sg-pilot-v2` (종료됨) |
+| 속도 (10/23 W&B 기준) | 3개 동시 실행에서 update 1번 약 23초 (eval 포함) → run 1개 약 8시간 |
+
+**고정 설정 (E4와 동일)**: budget $d_h = 31.9$, $d_v = 73.9$, $\lambda_0 = 0.1$, PPO lr 3e-4, clip 0.2, GAE $\lambda$ 0.95, $\gamma = 1$, target KL 0.03, entropy 0, grad clip 0.5. E4와 다른 점은 **update 수 (500 → 1,250)**와 **multi의 dual lr (0.02 → 0.04)** 두 가지뿐.
+
+**네트워크**: actor 62 → 64 → 64 → 2 (tanh), critic 62 → 64 → 64 → 3 (reward, hazard, vase). 파라미터 약 16.7K개 (actor 8.3K, critic 8.4K).
+
+#### 왜 GPU를 안 쓰나
+
+E10은 **`--device cpu`로 돌고 있어서 GPU를 전혀 쓰지 않는다.** GPU 온도가 안 오르는 게 정상이다. GPU로 돌려도 빨라지지 않는다 (PLAN §2에서 측정: CPU와 CUDA 속도 같음).
+
+- **시간의 대부분은 MuJoCo 시뮬레이션**이다. CPU 코어 하나에서 Python loop로 4개 env를 차례로 step한다 (약 400 step/s/env). update 1번에 4,000 step.
+- **네트워크가 너무 작다.** 16.7K 파라미터 MLP는 CPU에서도 순식간이다. rollout 중 추론은 매 step마다 batch 4개라서 GPU로 보내면 전송 비용이 계산보다 크다.
+- PPO update는 update당 최대 48번의 작은 gradient step이라 몇 초 안 걸린다.
+- 그래서 속도를 올리는 방법은 GPU가 아니라 **병렬 run 수 (CPU 코어)**다.
+
+#### 그래프 읽을 때 알아둘 것
+
+- **eval 점은 노이즈가 크다.** 10 episode 평균이고 100K step마다 하나라서, 이웃한 점끼리 정규화 cost 합이 ±0.5~1씩 튄다. 점 하나로 판단하지 말 것.
+- **$\lambda$는 eval이 아니라 train batch로 움직인다.** $\lambda$의 움직임은 `train/normalized_hazard + train/normalized_vase` (update마다, 4 episode 평균)와 비교해야 맞다. W&B에서 smoothing을 켜면 추세가 보인다.
+- **중간 관찰 (10/23, 약 2.3M step, aggregate_loose)**: 세 seed 모두 $\lambda$가 1M 근처에서 꺾임 (최고 약 4.5 / 5 / 6.6). seed 1은 eval cost 합이 1.7M 이후 대체로 2 아래이고 $\lambda$가 4.5 → 3.1로 내려가는 중 (약한 overshoot, dual update가 정상적으로 반응 중). 나머지 두 seed는 합이 2 근처에서 오르내리고 $\lambda$가 평평함. 최종 결과는 §3.4.
+
+### 3.4 E10 결과 (5M step, 10/24 완료)
 
 보고서: [`reports/spg-v2/README.md`](reports/spg-v2/README.md) (그림 포함). held-out은 E4와 같은 50 layout. ±는 50 episode에 대한 standard error.
 
@@ -340,6 +391,7 @@ seed별 held-out:
 | `scripts/summarize_runs.py` | **(신규)** `runs/` 아래 결과로 표 재생성 (학습 안 함). status, return, $x_i$, native feasible vs 둘 다 ≤ 1, 마지막 $\lambda$, 마지막 1/4 동안의 $\lambda$ 변화(수렴 판단용) |
 | `slurm_safety_calibrate_titanxp.sh`, `slurm_safety_multicost_titanxp.sh` | titanxp cluster에서 budget calibration / 본 실험 |
 | `validate_safety.py` | cost 신호가 제대로 나오는지 검증 (영상 포함) |
+| `render_policy.py` | **(신규, 10/23)** checkpoint의 episode 영상 (mp4). 맵은 `evaluate.py`와 같은 규칙 (기본: held-out layout 0, env seed 900000, chunk 10). 화면 위에 step, return, goals, 누적 hazard/vase cost와 $x_i$를 표시하고, cost가 생긴 step은 빨간 테두리. 결과는 `<run>/videos/`에 mp4 + json |
 | `test_core.py` | unit test 12개. 이번 세션에 추가: native feasibility ≠ per-cost, config `extends`/CLI override, repo의 config 전부 load 가능 |
 
 ### 4.2 실험 기록 체계 (이번 세션에 만듦)
@@ -388,7 +440,8 @@ for update in 1..1250:      # E10: 5M step (E4는 500 = 2M)
 
 ## 5. 남은 일 (구체적으로)
 
-0. **E10 완료 (10/24)** → §3.3, `reports/spg-v2/`. 이름 변경도 끝남: `runs/spg-v2-aggregate-loose/`, `runs/spg-v2-multi/`, `runs/spg-v2.sh`, `configs/safety/spg-v2.json`. 각 run의 `config.json`, `manifest.json` 안의 옛 group 이름(`sg-pilot-v2-*`)은 기록이라 그대로 둠. W&B group은 `spg-v2-aggregate-loose`, `spg-v2-multi`.
+0. **E10 완료 (10/24)** → §3.4, `reports/spg-v2/`. 이름 변경도 끝남: `runs/spg-v2-aggregate-loose/`, `runs/spg-v2-multi/`, `runs/spg-v2.sh`, `configs/safety/spg-v2.json`. 각 run의 `config.json`, `manifest.json` 안의 옛 group 이름(`sg-pilot-v2-*`)은 기록이라 그대로 둠. W&B group은 `spg-v2-aggregate-loose`, `spg-v2-multi`.
+   - **영상**: `nice -n 19 python render_policy.py runs/spg-v2-aggregate-loose/*/ runs/spg-v2-multi/*/` (각 run의 최신 `checkpoint.pt`, episode 1개에 약 1분). E4에서 aggregate가 hazard/vase를 과하게 피하던 모습이 E10에서도 남아 있는지 확인용.
 1. **진동 줄이기 (다음 실험 후보)**: step만 늘리는 것보다 dual update를 감쇠시키는 게 먼저.
    - PID Lagrangian (Stooke et al., 2020): violation의 변화율(D)과 비례항(P)을 더해 overshoot을 줄임. `train.py`에 flag로 추가하고 기본값은 지금과 같게.
    - 또는 첫 peak 이후 dual lr을 줄이기, 마지막 N개 checkpoint 평균으로 보고.

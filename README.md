@@ -39,6 +39,7 @@ Research plan and history: [PLAN.md](PLAN.md). Agent conventions: [CLAUDE.md](CL
 |---|---|
 | `train.py` | multi-cost trainer (toy / safety / humanoid); writes `config.json` (resolved args, git commit, eval protocol), `metrics.jsonl`, checkpoints, `evaluation.npz`, `summary.json` |
 | `evaluate.py` | re-evaluate a checkpoint on fixed layouts (held-out: `--environment-seed 900000 --action-seed 900001`) |
+| `render_policy.py` | mp4 of a checkpoint on the same layouts `evaluate.py` uses (default: held-out layout 0), with return/cost overlay |
 | `run_pilot.py` | queue a method × seed matrix with frozen Safety Gym settings; resumable |
 | `baseline_ppo.py`, `run_paper_repro.{py,sh}`, `compare_paper.py` | E2 paper reproduction and comparison plots |
 | `slurm_*.sh` | titanxp cluster jobs (paper repro, calibration, main experiment) |
@@ -81,6 +82,8 @@ python run_pilot.py --group sg-pilot-v1-rerun --budget-hazard 31.9 --budget-vase
 # Held-out evaluation of a finished run
 python evaluate.py runs/<group>/<method>-s<seed>/checkpoint.pt --episodes 50 \
   --environment-seed 900000 --action-seed 900001 --output runs/<group>/<method>-s<seed>/heldout.npz
+# Video of the latest checkpoint of every run (held-out layout 0) -> <run>/videos/
+nice -n 19 python render_policy.py runs/<group>/*/ --layouts 0
 ```
 
 ## Start a new experiment
