@@ -21,6 +21,8 @@ def main():
     p.add_argument("--group", default=None, help="defaults to the root directory name")
     p.add_argument("--mode", default="online", choices=("online", "offline"))
     p.add_argument("--interval", type=float, default=60)
+    p.add_argument("--expect", type=int, default=0,
+                   help="keep waiting until at least this many run directories exist (runs launched one after another)")
     args = p.parse_args()
     root = Path(args.root).resolve()
     group = args.group or root.name
@@ -53,7 +55,7 @@ def main():
                 run.summary.update(json.loads(summary.read_text()))
                 run.finish()
                 state[d][0] = None
-        if dirs and all(state[d][0] is None for d in dirs):
+        if dirs and len(dirs) >= args.expect and all(state[d][0] is None for d in dirs):
             print("All runs complete and logged.", flush=True)
             return
         print(time.strftime("%Y-%m-%d %H:%M:%S %Z"), {d.name: state[d][1] for d in dirs}, flush=True)
