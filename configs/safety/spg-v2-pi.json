@@ -1,5 +1,5 @@
 {
-  "id": "E11", "name": "spg-v2-pi: projected PI multipliers for multi", "status": "planned",
+  "id": "E11", "name": "spg-v2-pi: projected PI multipliers for multi", "status": "completed",
   "extends": "base.json",
   "question": "(1) Does lowering multi's integral gain 0.04 -> 0.02 reduce the multiplier oscillation seen in E10? (2) At K_I = 0.02, what does adding a proportional term (K_P = 1, 4) change?",
   "controller": "Projected PI variant with a signed proportional error (train.py pi_update), not a reproduction of a paper's implementation. Per cost i, rollout k: e_i[k] = mean_episode_cost_i[k] / budget_i - 1; I_i[k+1] = max(0, I_i[k] + K_I e_i[k]); lambda_i[k+1] = max(0, I_i[k+1] + K_P e_i[k]); I_i[0] = lambda_i[0] = 0. Rollout k's PPO update uses lambda[k]. No D term, cost EMA, lambda cap or gain decay. K_P = 0 equals the integral update (unit test + toy bit-identity).",

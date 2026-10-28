@@ -4,17 +4,17 @@
 - Training finished for all 12 runs (2026-10-24 22:54 → 2026-10-26 ≈ 03:00 KST).
 - Validation finished: 60/60 checkpoint evaluations, done 2026-10-26 06:55.
 - **Selection on validation: D (K_I 0.02, K_P 4)**, see [Selection](#selection).
-- Held-out (500 episodes): **not run yet**. It is launched only after this selection is committed.
+- Held-out (500 episodes): done 2026-10-28 21:13, run after the selection was committed (deb758f).
 
 Config: [`configs/safety/spg-v2-pi.json`](../../configs/safety/spg-v2-pi.json). Raw outputs:
 `runs/spg-v2-pi-*/multi-s{0,1,2}/` (not committed). W&B project `multi-cost-rl`, one group per condition.
 
 | Condition | K_I | K_P | K_D | Group | Seeds 0 / 1 / 2 | Validation | Held-out |
 |---|---:|---:|---:|---|---|---|---|
-| A: E10 baseline gain | 0.04 | 0 | 0 | `spg-v2-pi-a-ki04` | done / done / done | done | pending |
-| B: slower integral | 0.02 | 0 | 0 | `spg-v2-pi-b-ki02` | done / done / done | done | pending |
-| C: weak PI | 0.02 | 1 | 0 | `spg-v2-pi-c-ki02-kp1` | done / done / done | done | pending (extra, not used for selection) |
-| D: strong PI | 0.02 | 4 | 0 | `spg-v2-pi-d-ki02-kp4` | done / done / done | done | pending |
+| A: E10 baseline gain | 0.04 | 0 | 0 | `spg-v2-pi-a-ki04` | done / done / done | done | done |
+| B: slower integral | 0.02 | 0 | 0 | `spg-v2-pi-b-ki02` | done / done / done | done | done |
+| C: weak PI | 0.02 | 1 | 0 | `spg-v2-pi-c-ki02-kp1` | done / done / done | done | done (extra, not used for selection) |
+| D: strong PI | 0.02 | 4 | 0 | `spg-v2-pi-d-ki02-kp4` | done / done / done | done | done |
 
 Full generated tables (late windows, cumulative excess, every validation checkpoint): [analysis.md](analysis.md).
 
@@ -98,7 +98,7 @@ Spread = std over the 3 seeds of the per-seed means. Episode standard errors per
 ## Findings
 
 1. **A → B (integral gain 0.04 → 0.02): slower, not damped.**
-   - The first λ peak moved later, from about 2.8M (A s1, s2) to 2.4–4.2M.
+   - The first λ peak moved later: about 2.8M for A s1 and s2, 3.1–4.2M for B s0 and s1 (B s2: 2.4–2.8M).
    - At 5M, B is still in its over-constrained phase: λ ≈ 4–10 and falling, costs 0.5–0.9.
    - B s0's return is falling (14.8 → 8.5 across the late windows).
    - Cumulative excess is larger for B (400–625 vs 171–439 for hazard): the slower integral lets the early violation last longer.
@@ -140,8 +140,43 @@ Selected on validation and training only, before any held-out run: **D (K_I 0.02
 ## Held-out
 
 Final 5M checkpoint, 500 episodes, environment seed 950000, action seed 950001, chunk 10,
-stochastic: A, B and D (spec), plus C for completeness. Held-out results will not be used to
-re-select gains. **Not run yet.**
+stochastic: A, B and D (spec), plus C for completeness. Run after the selection was committed;
+not used to re-select gains. ± = standard error over the 500 episodes; in the mean rows,
+parentheses = std over the 3 seeds.
+
+| Cond | seed | episodes | return | x_h | x_v | both mean ≤ 1 | joint pass |
+|---|---|---:|---:|---:|---:|---|---:|
+| A | 0 | 500 | 12.4 ± 0.2 | 0.80 ± 0.03 | 0.82 ± 0.03 | yes | 0.48 |
+| A | 1 | 500 | 11.1 ± 0.2 | 0.50 ± 0.02 | 0.69 ± 0.03 | yes | 0.61 |
+| A | 2 | 500 | 15.9 ± 0.2 | 0.71 ± 0.03 | 0.88 ± 0.03 | yes | 0.45 |
+| **A mean** | | | **13.1** (2.5) | 0.67 (0.15) | 0.80 (0.10) | 3/3 | 0.51 |
+| B | 0 | 500 | 6.9 ± 0.3 | 0.42 ± 0.03 | 0.47 ± 0.02 | yes | 0.74 |
+| B | 1 | 500 | 11.7 ± 0.4 | 0.79 ± 0.06 | 0.77 ± 0.04 | yes | 0.51 |
+| B | 2 | 500 | 17.6 ± 0.2 | 0.99 ± 0.04 | 1.06 ± 0.04 | no | 0.30 |
+| **B mean** | | | **12.0** (5.4) | 0.73 (0.29) | 0.77 (0.30) | 2/3 | 0.52 |
+| C | 0 | 500 | 12.7 ± 0.3 | 0.95 ± 0.09 | 0.88 ± 0.04 | yes | 0.47 |
+| C | 1 | 500 | 18.5 ± 0.3 | 1.37 ± 0.09 | 1.13 ± 0.04 | no | 0.26 |
+| C | 2 | 500 | 16.8 ± 0.2 | 1.02 ± 0.05 | 0.88 ± 0.03 | no | 0.38 |
+| **C mean** | | | **16.0** (3.0) | 1.11 (0.23) | 0.96 (0.14) | 1/3 | 0.37 |
+| D | 0 | 500 | 18.8 ± 0.2 | 0.89 ± 0.03 | 1.00 ± 0.04 | yes | 0.39 |
+| D | 1 | 500 | 17.0 ± 0.3 | 0.70 ± 0.03 | 0.83 ± 0.03 | yes | 0.49 |
+| D | 2 | 500 | 17.1 ± 0.3 | 1.55 ± 0.10 | 1.12 ± 0.04 | no | 0.27 |
+| **D mean** | | | **17.6** (1.0) | 1.04 (0.45) | 0.98 (0.14) | 2/3 | 0.38 |
+
+What held-out says, in the same direction as validation:
+- **D (selected) vs A and B:**
+  - D has the highest return: 17.6 vs 13.1 (A) and 12.0 (B).
+  - D's seed spread in return is the smallest (1.0).
+  - Two D seeds are within budget: s0 sits on it (0.89 / 1.00) and s1 is below.
+  - D s2 still violates hazard clearly (1.55 ± 0.10).
+- **A** is within budget in all 3 seeds but over-conservative.
+- **B** varies most across seeds:
+  - s0 has collapsed to return 6.9 at x ≈ 0.45.
+  - s2 is just over budget on vase (1.06 ± 0.04).
+- **C** (not used for selection) has 2 of 3 seeds at or over budget.
+- B s2's vase cost (1.06 ± 0.04) and C s2's hazard cost (1.02 ± 0.05) are within 1.5 standard errors of 1.
+  The clear violations are C s1 and D s2, the two runs whose λ was still rising at 5M.
+- With 3 seeds, "D gives more return near the budget than A/B" is a direction, not an established result.
 
 ## Controller
 

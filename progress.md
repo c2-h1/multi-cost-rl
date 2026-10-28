@@ -442,12 +442,31 @@ for update in 1..1250:      # E10: 5M step (E4는 500 = 2M)
 
 0. **E10 완료 (10/24)** → §3.4, `reports/spg-v2/`. 이름 변경도 끝남: `runs/spg-v2-aggregate-loose/`, `runs/spg-v2-multi/`, `runs/spg-v2.sh`, `configs/safety/spg-v2.json`. 각 run의 `config.json`, `manifest.json` 안의 옛 group 이름(`sg-pilot-v2-*`)은 기록이라 그대로 둠. W&B group은 `spg-v2-aggregate-loose`, `spg-v2-multi`.
    - **영상**: `nice -n 19 python render_policy.py runs/spg-v2-aggregate-loose/*/ runs/spg-v2-multi/*/` (각 run의 최신 `checkpoint.pt`, episode 1개에 약 1분). E4에서 aggregate가 hazard/vase를 과하게 피하던 모습이 E10에서도 남아 있는지 확인용.
-1. **E11 PI Lagrangian 실행 중 (10/24 22:54 시작, 약 29시간)**: multi만, seed 0/1/2, 5M step, I = λ = 0에서 시작.
-   - A: $K_I$ 0.04 (E10과 같은 gain), B: $K_I$ 0.02, C: $K_I$ 0.02 + $K_P$ 1, D: $K_I$ 0.02 + $K_P$ 4. A→B는 integral gain 효과, B→C/D는 proportional 항 효과.
+1. **E11 PI Lagrangian 완료 (10/28)** → `reports/spg-v2-pi/README.md`. multi만, seed 0/1/2, 5M step, I = λ = 0에서 시작.
+   - 조건:
+     - A: $K_I$ 0.04 (E10과 같은 gain)
+     - B: $K_I$ 0.02
+     - C: $K_I$ 0.02 + $K_P$ 1
+     - D: $K_I$ 0.02 + $K_P$ 4
    - 식: $e = x - 1$, $I \leftarrow \max(0, I + K_I e)$, $\lambda = \max(0, I + K_P e)$ (`--dual-controller pi`). 논문 구현 재현이 아니라 signed P항을 쓴 projected PI 변형.
-   - E10 multi는 재사용 안 함 (λ₀ = 0.1이었고 4.25M/4.75M checkpoint, controller 로그가 없음) → A도 새로 돌림, 12 runs.
-   - 끝나면: 4.0–5.0M checkpoint를 validation 200 episodes (env seed 700000)로 평가 → 조건 선택 → 그다음에만 held-out 500 episodes (env seed 950000)로 A, B, 선택된 PI 비교. 보고서: `reports/spg-v2-pi/README.md`, 분석: `python scripts/analyze_pi.py --output reports/spg-v2-pi`.
-   - 확인: tmux `spg-v2-pi`, `runs/spg-v2-pi.log`, W&B group `spg-v2-pi-*`.
+   - E10 multi는 재사용하지 않음 (λ₀ = 0.1, checkpoint와 controller 로그가 없음).
+   - **결과** (held-out 500 episodes, 3 seed 평균):
+
+     | 조건 | return | x_h | x_v |
+     |---|---:|---:|---:|
+     | A | 13.1 | 0.67 | 0.80 |
+     | B | 12.0 | 0.73 | 0.77 |
+     | C | 16.0 | 1.11 | 0.96 |
+     | D | 17.6 | 1.04 | 0.98 |
+
+     - A→B: $K_I$를 줄이면 진동이 줄지 않고 느려지기만 함. A와 B 모두 over-constrained 상태로 끝남.
+     - C ($K_P$ 1): 효과가 거의 없음.
+     - **D ($K_P$ 4)를 validation으로 선택.**
+       - integral peak가 낮고 return이 가장 높음.
+       - λ가 update마다 튐 (std 1.5–3.4).
+       - seed 2는 hazard violation (1.55).
+     - 세 seed가 모두 budget 안에 든 조건은 없고, 대부분 λ가 아직 움직이는 중. seed 3개라 경향일 뿐임.
+   - **다음 (제안, 안 돌림)**: $K_P$ 2 (노이즈 절반으로 D의 효과가 유지되는지), D의 seed 추가.
 2. **랩미팅**: 해석 B 상의 (§6).
 3. **`spg-v2`를 `main`에 merge** (GitHub PR). 아직 안 함.
 4. GitHub의 PR #1이 자동으로 닫혔는지 확인 (`gh`가 없어서 여기서는 확인 못 함).
